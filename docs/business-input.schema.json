@@ -1,0 +1,1418 @@
+{
+  "$defs": {
+    "Carrier": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "valid_until": {
+          "format": "date-time",
+          "title": "Valid Until",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "data_quality": {
+          "$ref": "#/$defs/Quality"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "minItems": 1,
+          "title": "Provenance",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "modes": {
+          "items": {
+            "enum": [
+              "SEA",
+              "AIR",
+              "ROAD",
+              "RAIL",
+              "MULTIMODAL"
+            ],
+            "type": "string"
+          },
+          "title": "Modes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "created_at",
+        "observed_at",
+        "valid_until",
+        "version",
+        "data_quality",
+        "provenance",
+        "name",
+        "modes"
+      ],
+      "title": "Carrier",
+      "type": "object"
+    },
+    "Coordinate": {
+      "additionalProperties": false,
+      "properties": {
+        "latitude": {
+          "maximum": 90,
+          "minimum": -90,
+          "title": "Latitude",
+          "type": "number"
+        },
+        "longitude": {
+          "maximum": 180,
+          "minimum": -180,
+          "title": "Longitude",
+          "type": "number"
+        }
+      },
+      "required": [
+        "latitude",
+        "longitude"
+      ],
+      "title": "Coordinate",
+      "type": "object"
+    },
+    "DemandObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "valid_until": {
+          "format": "date-time",
+          "title": "Valid Until",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "data_quality": {
+          "$ref": "#/$defs/Quality"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "minItems": 1,
+          "title": "Provenance",
+          "type": "array"
+        },
+        "sku_id": {
+          "title": "Sku Id",
+          "type": "string"
+        },
+        "location_id": {
+          "title": "Location Id",
+          "type": "string"
+        },
+        "quantity": {
+          "minimum": 0,
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "period_start": {
+          "format": "date-time",
+          "title": "Period Start",
+          "type": "string"
+        },
+        "period_end": {
+          "format": "date-time",
+          "title": "Period End",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "created_at",
+        "observed_at",
+        "valid_until",
+        "version",
+        "data_quality",
+        "provenance",
+        "sku_id",
+        "location_id",
+        "quantity",
+        "period_start",
+        "period_end"
+      ],
+      "title": "DemandObservation",
+      "type": "object"
+    },
+    "Disruption": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "valid_until": {
+          "format": "date-time",
+          "title": "Valid Until",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "data_quality": {
+          "$ref": "#/$defs/Quality"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "minItems": 1,
+          "title": "Provenance",
+          "type": "array"
+        },
+        "event_type": {
+          "title": "Event Type",
+          "type": "string"
+        },
+        "severity": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Severity",
+          "type": "number"
+        },
+        "affected_entities": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Affected Entities",
+          "type": "array"
+        },
+        "explanation": {
+          "title": "Explanation",
+          "type": "string"
+        },
+        "supply_effect": {
+          "anyOf": [
+            {
+              "const": "UNAVAILABLE",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Supply Effect"
+        },
+        "supplier_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Supplier Ids",
+          "type": "array"
+        },
+        "location_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Location Ids",
+          "type": "array"
+        },
+        "quote_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Quote Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "created_at",
+        "observed_at",
+        "valid_until",
+        "version",
+        "data_quality",
+        "provenance",
+        "event_type",
+        "severity",
+        "affected_entities",
+        "explanation"
+      ],
+      "title": "Disruption",
+      "type": "object"
+    },
+    "InventoryPosition": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "valid_until": {
+          "format": "date-time",
+          "title": "Valid Until",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "data_quality": {
+          "$ref": "#/$defs/Quality"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "minItems": 1,
+          "title": "Provenance",
+          "type": "array"
+        },
+        "sku_id": {
+          "title": "Sku Id",
+          "type": "string"
+        },
+        "location_id": {
+          "title": "Location Id",
+          "type": "string"
+        },
+        "current_inventory_units": {
+          "minimum": 0,
+          "title": "Current Inventory Units",
+          "type": "integer"
+        },
+        "expected_demand_units": {
+          "minimum": 0,
+          "title": "Expected Demand Units",
+          "type": "integer"
+        },
+        "demand_reference": {
+          "minLength": 1,
+          "title": "Demand Reference",
+          "type": "string"
+        },
+        "horizon_days": {
+          "exclusiveMinimum": 0,
+          "title": "Horizon Days",
+          "type": "number"
+        },
+        "lead_time_days": {
+          "minimum": 0,
+          "title": "Lead Time Days",
+          "type": "number"
+        },
+        "safety_stock_units": {
+          "minimum": 0,
+          "title": "Safety Stock Units",
+          "type": "integer"
+        },
+        "service_level": {
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Service Level",
+          "type": "number"
+        },
+        "max_stock_units": {
+          "minimum": 0,
+          "title": "Max Stock Units",
+          "type": "integer"
+        },
+        "unit_cost_usd": {
+          "exclusiveMinimum": 0,
+          "title": "Unit Cost Usd",
+          "type": "number"
+        },
+        "holding_cost_per_unit_usd": {
+          "minimum": 0,
+          "title": "Holding Cost Per Unit Usd",
+          "type": "number"
+        },
+        "ordering_cost_usd": {
+          "minimum": 0,
+          "title": "Ordering Cost Usd",
+          "type": "number"
+        },
+        "shortage_penalty_usd": {
+          "exclusiveMinimum": 0,
+          "title": "Shortage Penalty Usd",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "created_at",
+        "observed_at",
+        "valid_until",
+        "version",
+        "data_quality",
+        "provenance",
+        "sku_id",
+        "location_id",
+        "current_inventory_units",
+        "expected_demand_units",
+        "demand_reference",
+        "horizon_days",
+        "lead_time_days",
+        "safety_stock_units",
+        "service_level",
+        "max_stock_units",
+        "unit_cost_usd",
+        "holding_cost_per_unit_usd",
+        "ordering_cost_usd",
+        "shortage_penalty_usd"
+      ],
+      "title": "InventoryPosition",
+      "type": "object"
+    },
+    "ModalCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "valid_until": {
+          "format": "date-time",
+          "title": "Valid Until",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "data_quality": {
+          "$ref": "#/$defs/Quality"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "minItems": 1,
+          "title": "Provenance",
+          "type": "array"
+        },
+        "shipment_id": {
+          "title": "Shipment Id",
+          "type": "string"
+        },
+        "carrier_id": {
+          "title": "Carrier Id",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "SEA",
+            "AIR",
+            "ROAD",
+            "RAIL",
+            "MULTIMODAL"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "capacity_units": {
+          "exclusiveMinimum": 0,
+          "title": "Capacity Units",
+          "type": "integer"
+        },
+        "cost_per_unit_usd": {
+          "exclusiveMinimum": 0,
+          "title": "Cost Per Unit Usd",
+          "type": "number"
+        },
+        "duration_hours": {
+          "exclusiveMinimum": 0,
+          "title": "Duration Hours",
+          "type": "number"
+        },
+        "risk_score": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Risk Score",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "created_at",
+        "observed_at",
+        "valid_until",
+        "version",
+        "data_quality",
+        "provenance",
+        "shipment_id",
+        "carrier_id",
+        "mode",
+        "capacity_units",
+        "cost_per_unit_usd",
+        "duration_hours",
+        "risk_score"
+      ],
+      "title": "ModalCandidate",
+      "type": "object"
+    },
+    "NavigationEdge": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "valid_until": {
+          "format": "date-time",
+          "title": "Valid Until",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "data_quality": {
+          "$ref": "#/$defs/Quality"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "minItems": 1,
+          "title": "Provenance",
+          "type": "array"
+        },
+        "origin_id": {
+          "title": "Origin Id",
+          "type": "string"
+        },
+        "destination_id": {
+          "title": "Destination Id",
+          "type": "string"
+        },
+        "geometry": {
+          "items": {
+            "$ref": "#/$defs/Coordinate"
+          },
+          "minItems": 2,
+          "title": "Geometry",
+          "type": "array"
+        },
+        "distance_km": {
+          "exclusiveMinimum": 0,
+          "title": "Distance Km",
+          "type": "number"
+        },
+        "duration_hours": {
+          "exclusiveMinimum": 0,
+          "title": "Duration Hours",
+          "type": "number"
+        },
+        "cost_usd": {
+          "exclusiveMinimum": 0,
+          "title": "Cost Usd",
+          "type": "number"
+        },
+        "fuel_litres": {
+          "exclusiveMinimum": 0,
+          "title": "Fuel Litres",
+          "type": "number"
+        },
+        "risk_score": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Risk Score",
+          "type": "number"
+        },
+        "weather_penalty": {
+          "minimum": 0,
+          "title": "Weather Penalty",
+          "type": "number"
+        },
+        "current_penalty": {
+          "minimum": 0,
+          "title": "Current Penalty",
+          "type": "number"
+        },
+        "max_draft_m": {
+          "exclusiveMinimum": 0,
+          "title": "Max Draft M",
+          "type": "number"
+        },
+        "max_speed_knots": {
+          "exclusiveMinimum": 0,
+          "title": "Max Speed Knots",
+          "type": "number"
+        },
+        "open": {
+          "title": "Open",
+          "type": "boolean"
+        },
+        "allowed_vessel_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Vessel Ids",
+          "type": "array"
+        },
+        "environmental_references": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Environmental References",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "created_at",
+        "observed_at",
+        "valid_until",
+        "version",
+        "data_quality",
+        "provenance",
+        "origin_id",
+        "destination_id",
+        "geometry",
+        "distance_km",
+        "duration_hours",
+        "cost_usd",
+        "fuel_litres",
+        "risk_score",
+        "weather_penalty",
+        "current_penalty",
+        "max_draft_m",
+        "max_speed_knots",
+        "open"
+      ],
+      "title": "NavigationEdge",
+      "type": "object"
+    },
+    "NavigationNetwork": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "valid_until": {
+          "format": "date-time",
+          "title": "Valid Until",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "data_quality": {
+          "$ref": "#/$defs/Quality"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "minItems": 1,
+          "title": "Provenance",
+          "type": "array"
+        },
+        "navigational_authority": {
+          "minLength": 1,
+          "title": "Navigational Authority",
+          "type": "string"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/NavigationNode"
+          },
+          "minItems": 2,
+          "title": "Nodes",
+          "type": "array"
+        },
+        "edges": {
+          "items": {
+            "$ref": "#/$defs/NavigationEdge"
+          },
+          "minItems": 1,
+          "title": "Edges",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "created_at",
+        "observed_at",
+        "valid_until",
+        "version",
+        "data_quality",
+        "provenance",
+        "navigational_authority",
+        "nodes",
+        "edges"
+      ],
+      "title": "NavigationNetwork",
+      "type": "object"
+    },
+    "NavigationNode": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "position": {
+          "$ref": "#/$defs/Coordinate"
+        }
+      },
+      "required": [
+        "id",
+        "position"
+      ],
+      "title": "NavigationNode",
+      "type": "object"
+    },
+    "Order": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "valid_until": {
+          "format": "date-time",
+          "title": "Valid Until",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "data_quality": {
+          "$ref": "#/$defs/Quality"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "minItems": 1,
+          "title": "Provenance",
+          "type": "array"
+        },
+        "sku_id": {
+          "title": "Sku Id",
+          "type": "string"
+        },
+        "quantity": {
+          "exclusiveMinimum": 0,
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "destination_id": {
+          "title": "Destination Id",
+          "type": "string"
+        },
+        "due_at": {
+          "format": "date-time",
+          "title": "Due At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "created_at",
+        "observed_at",
+        "valid_until",
+        "version",
+        "data_quality",
+        "provenance",
+        "sku_id",
+        "quantity",
+        "destination_id",
+        "due_at"
+      ],
+      "title": "Order",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "reference": {
+          "minLength": 1,
+          "title": "Reference",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "transformation": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transformation"
+        }
+      },
+      "required": [
+        "source",
+        "reference",
+        "observed_at"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "Quality": {
+      "enum": [
+        "VALID",
+        "PARTIAL",
+        "STALE",
+        "UNAVAILABLE",
+        "INVALID"
+      ],
+      "title": "Quality",
+      "type": "string"
+    },
+    "SKU": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "valid_until": {
+          "format": "date-time",
+          "title": "Valid Until",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "data_quality": {
+          "$ref": "#/$defs/Quality"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "minItems": 1,
+          "title": "Provenance",
+          "type": "array"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "created_at",
+        "observed_at",
+        "valid_until",
+        "version",
+        "data_quality",
+        "provenance",
+        "unit"
+      ],
+      "title": "SKU",
+      "type": "object"
+    },
+    "Shipment": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "valid_until": {
+          "format": "date-time",
+          "title": "Valid Until",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "data_quality": {
+          "$ref": "#/$defs/Quality"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "minItems": 1,
+          "title": "Provenance",
+          "type": "array"
+        },
+        "sku_id": {
+          "title": "Sku Id",
+          "type": "string"
+        },
+        "quantity": {
+          "exclusiveMinimum": 0,
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "origin_id": {
+          "title": "Origin Id",
+          "type": "string"
+        },
+        "destination_id": {
+          "title": "Destination Id",
+          "type": "string"
+        },
+        "departure_at": {
+          "format": "date-time",
+          "title": "Departure At",
+          "type": "string"
+        },
+        "due_at": {
+          "format": "date-time",
+          "title": "Due At",
+          "type": "string"
+        },
+        "vessel_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vessel Id"
+        },
+        "draft_m": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Draft M"
+        },
+        "max_speed_knots": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Speed Knots"
+        },
+        "order_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Order Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "created_at",
+        "observed_at",
+        "valid_until",
+        "version",
+        "data_quality",
+        "provenance",
+        "sku_id",
+        "quantity",
+        "origin_id",
+        "destination_id",
+        "departure_at",
+        "due_at"
+      ],
+      "title": "Shipment",
+      "type": "object"
+    },
+    "Supplier": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "valid_until": {
+          "format": "date-time",
+          "title": "Valid Until",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "data_quality": {
+          "$ref": "#/$defs/Quality"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "minItems": 1,
+          "title": "Provenance",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "location_id": {
+          "title": "Location Id",
+          "type": "string"
+        },
+        "approved": {
+          "title": "Approved",
+          "type": "boolean"
+        },
+        "quality_score": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Quality Score",
+          "type": "number"
+        },
+        "reliability": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Reliability",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "created_at",
+        "observed_at",
+        "valid_until",
+        "version",
+        "data_quality",
+        "provenance",
+        "name",
+        "location_id",
+        "approved",
+        "quality_score",
+        "reliability"
+      ],
+      "title": "Supplier",
+      "type": "object"
+    },
+    "SupplierQuote": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "source": {
+          "minLength": 1,
+          "title": "Source",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "observed_at": {
+          "format": "date-time",
+          "title": "Observed At",
+          "type": "string"
+        },
+        "valid_until": {
+          "format": "date-time",
+          "title": "Valid Until",
+          "type": "string"
+        },
+        "version": {
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        },
+        "data_quality": {
+          "$ref": "#/$defs/Quality"
+        },
+        "provenance": {
+          "items": {
+            "$ref": "#/$defs/Provenance"
+          },
+          "minItems": 1,
+          "title": "Provenance",
+          "type": "array"
+        },
+        "supplier_id": {
+          "title": "Supplier Id",
+          "type": "string"
+        },
+        "sku_id": {
+          "title": "Sku Id",
+          "type": "string"
+        },
+        "location_id": {
+          "title": "Location Id",
+          "type": "string"
+        },
+        "capacity_units": {
+          "exclusiveMinimum": 0,
+          "title": "Capacity Units",
+          "type": "integer"
+        },
+        "unit_cost_usd": {
+          "exclusiveMinimum": 0,
+          "title": "Unit Cost Usd",
+          "type": "number"
+        },
+        "lead_time_days": {
+          "minimum": 0,
+          "title": "Lead Time Days",
+          "type": "number"
+        },
+        "risk_score": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Risk Score",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "source",
+        "created_at",
+        "observed_at",
+        "valid_until",
+        "version",
+        "data_quality",
+        "provenance",
+        "supplier_id",
+        "sku_id",
+        "location_id",
+        "capacity_units",
+        "unit_cost_usd",
+        "lead_time_days",
+        "risk_score"
+      ],
+      "title": "SupplierQuote",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "orders": {
+      "items": {
+        "$ref": "#/$defs/Order"
+      },
+      "title": "Orders",
+      "type": "array"
+    },
+    "shipments": {
+      "items": {
+        "$ref": "#/$defs/Shipment"
+      },
+      "title": "Shipments",
+      "type": "array"
+    },
+    "skus": {
+      "items": {
+        "$ref": "#/$defs/SKU"
+      },
+      "title": "Skus",
+      "type": "array"
+    },
+    "demand": {
+      "items": {
+        "$ref": "#/$defs/DemandObservation"
+      },
+      "title": "Demand",
+      "type": "array"
+    },
+    "inventory": {
+      "items": {
+        "$ref": "#/$defs/InventoryPosition"
+      },
+      "title": "Inventory",
+      "type": "array"
+    },
+    "suppliers": {
+      "items": {
+        "$ref": "#/$defs/Supplier"
+      },
+      "title": "Suppliers",
+      "type": "array"
+    },
+    "supplier_quotes": {
+      "items": {
+        "$ref": "#/$defs/SupplierQuote"
+      },
+      "title": "Supplier Quotes",
+      "type": "array"
+    },
+    "carriers": {
+      "items": {
+        "$ref": "#/$defs/Carrier"
+      },
+      "title": "Carriers",
+      "type": "array"
+    },
+    "carrier_options": {
+      "items": {
+        "$ref": "#/$defs/ModalCandidate"
+      },
+      "title": "Carrier Options",
+      "type": "array"
+    },
+    "disruptions": {
+      "items": {
+        "$ref": "#/$defs/Disruption"
+      },
+      "title": "Disruptions",
+      "type": "array"
+    },
+    "route_network": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NavigationNetwork"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "title": "BusinessInputs",
+  "type": "object"
+}

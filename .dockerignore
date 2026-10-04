@@ -1,0 +1,10 @@
+**/__pycache__
+**/node_modules
+**/.next
+.env*
+data
+backups
+deploy/secrets
+deploy/tls
+.git
+*.db*

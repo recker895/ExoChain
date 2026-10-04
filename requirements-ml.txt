@@ -1,0 +1,4 @@
+# Optional: training / approved ST-GNN inference, not required for safe blocking.
+# Install a platform/CUDA-specific wheel from PyTorch if needed.
+torch==2.7.1
+

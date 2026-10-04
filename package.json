@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@arcnautical/maritime-routing": "^1.0.1"
+  }
+}

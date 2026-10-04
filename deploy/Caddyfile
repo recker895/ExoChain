@@ -1,0 +1,11 @@
+{
+    auto_https off
+    admin off
+}
+https://{$PUBLIC_HOST}:8443 {
+    tls /run/secrets/tls_cert /run/secrets/tls_key
+    header Strict-Transport-Security "max-age=31536000"
+    @backend path /api/* /health /livez /readyz
+    reverse_proxy @backend api:8000
+    reverse_proxy frontend:3000
+}
