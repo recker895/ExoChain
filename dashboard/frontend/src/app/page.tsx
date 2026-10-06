@@ -13,7 +13,6 @@ import {
   FileCheck,
   Globe2,
   Layers3,
-  LockKeyhole,
   MapPin,
   Play,
   Radio,
@@ -35,6 +34,8 @@ import {
 } from "./Workspaces";
 import { api, subscribe, API } from "./api";
 import Replenishment from "./Replenishment";
+import MaritimeDemo, { MaritimeRunForm } from "./MaritimeDemo";
+import { maritimeInput, catalog } from "./maritimeSelection";
 import type {
   Agent,
   Audit,
@@ -96,7 +97,7 @@ const number = (n: number | null | undefined, digits = 1) =>
 const time = (value: string | undefined) =>
   value ? new Date(value).toLocaleString() : "Not observed";
 const tone = (status: string | undefined) =>
-  /^(SUCCESS|VALID|HEALTHY|AVAILABLE|OPTIMAL|FEASIBLE|APPROVED|EXECUTED)$/.test(
+  /^(SUCCESS|VALID|HEALTHY|AVAILABLE|OPTIMAL|FEASIBLE|APPROVED|EXECUTED|DEMO_COMPLETE|DEMO_REVIEWED|EXECUTION_SIMULATED|ASSESSMENT_COMPLETE|ROUTE_READY)$/.test(
     status || "",
   )
     ? "good"
@@ -107,11 +108,12 @@ const tone = (status: string | undefined) =>
           )
         ? "warn"
         : "neutral";
+const displayLabel = (value: string) => ({ "Route Demo": "Route Planner", DEMO_COMPLETE: "SIMULATION COMPLETE", DEMO_REVIEWED: "REVIEWED", TEST_SCENARIO: "SIMULATION" }[value] || value.replaceAll("_", " "));
 function Badge({ status }: { status?: string }) {
   return (
     <span className={`badge ${tone(status)}`}>
       <i />
-      {(status || "NOT RUN").replaceAll("_", " ")}
+      {displayLabel(status || "NOT RUN")}
     </span>
   );
 }
@@ -152,24 +154,26 @@ function Metric({
   );
 }
 const defaultRequest: RequestSpec = {
-  operation: "ASSESSMENT",
-  demo_mode: false,
-  shipment_ids: [],
+  operation: "TRANSPORT",
+  demo_mode: true,
+  use_ai_explanation: true,
+  shipment_ids: ["MARITIME-PLAN"],
+  vessel_reference: { shipment_id: "MARITIME-PLAN", mmsi: catalog.vessels[0].mmsi, imo: catalog.vessels[0].imo, vessel_name: catalog.vessels[0].name },
   inventory_ids: [],
-  required_components: [],
+  required_components: ["route"],
   budget_usd: null,
   max_duration_hours: null,
   max_risk: 0.5,
-  weights: { cost: 1, time: 1, fuel: 1, risk: 1, weather: 1, current: 1 },
-  require_human_approval: true,
-  simulation: false,
+  weights: { distance: 1, cost: 1, time: 1, fuel: 1, risk: 1, weather: 1, current: 1, wave: 1, port: 1 },
+  require_human_approval: false,
+  simulation: true,
   what_if: false,
 };
 
 export default function ControlTower() {
-  const [token, setToken] = useState("");
-  const [approvalToken, setApprovalToken] = useState("");
-  const [authOpen, setAuthOpen] = useState(false);
+  // API helper arguments remain compatible with the other workspace components.
+  const token = "";
+  const approvalToken = "";
   const [health, setHealth] = useState<Health>();
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [runs, setRuns] = useState<RunSummary[]>([]);
@@ -177,6 +181,7 @@ export default function ControlTower() {
   const [selectedId, setSelectedId] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [submitError, setSubmitError] = useState("");
   const [connected, setConnected] = useState(false);
   const [telemetryAt, setTelemetryAt] = useState<string>();
   const [telemetryStatus, setTelemetryStatus] = useState("UNAVAILABLE");
@@ -187,7 +192,10 @@ export default function ControlTower() {
     const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
   }, []);
-  const [view, setView] = useState("Command Center");
+  const [view, setView] = useState("Route Demo");
+  const [agentEvents, setAgentEvents] = useState<Record<string, Audit>>({});
+  const [planningSpeed, setPlanningSpeed] = useState(14);
+  useEffect(() => { setAgentEvents({}); }, [selectedId]);
   const [drawer, setDrawer] = useState(false);
   const [agent, setAgent] = useState<Agent>();
   const [vessel, setVessel] = useState<Vessel>();
@@ -201,20 +209,20 @@ export default function ControlTower() {
   const [whatIf, setWhatIf] = useState(false);
   const [approvalReason, setApprovalReason] = useState("");
   const refreshRuns = useCallback(async () => {
-    if (!token && !approvalToken) return;
     try {
       const items = await api<RunSummary[]>(
         "/api/v1/runs",
         token || approvalToken,
       );
       setRuns(items);
-      setSelectedId((current) => current || items[0]?.run_id || "");
+      const eligible = view === "Route Demo" ? items.filter(item => item.request.operation === "TRANSPORT" && item.request.demo_mode) : items;
+      setSelectedId((current) => current || eligible[0]?.run_id || "");
     } catch (e) {
       setError((e as Error).message);
     }
-  }, [token, approvalToken]);
+  }, [token, approvalToken, view]);
   const refreshRun = useCallback(async () => {
-    if (!selectedId || (!token && !approvalToken)) return;
+    if (!selectedId) return;
     try {
       setRun(
         await api<Run>(`/api/v1/runs/${selectedId}`, token || approvalToken),
@@ -285,16 +293,14 @@ export default function ControlTower() {
     };
   }, [token, approvalToken]);
   useEffect(() => {
-    if (!token && !approvalToken) return;
     const controller = new AbortController();
     fetch(API + "/api/v1/runs", {
-      headers: { Authorization: `Bearer ${token || approvalToken}` },
       signal: controller.signal,
     })
       .then(async (response) => {
         if (!response.ok)
           throw new Error(
-            `Run access failed (${response.status}). Check access credentials.`,
+            `Run access failed (${response.status}).`,
           );
         const items: RunSummary[] = await response.json();
         setRuns(items);
@@ -306,10 +312,9 @@ export default function ControlTower() {
     return () => controller.abort();
   }, [token, approvalToken]);
   useEffect(() => {
-    if (!selectedId || (!token && !approvalToken)) return;
+    if (!selectedId) return;
     const controller = new AbortController();
     fetch(API + `/api/v1/runs/${selectedId}`, {
-      headers: { Authorization: `Bearer ${token || approvalToken}` },
       signal: controller.signal,
     })
       .then(async (response) => {
@@ -323,7 +328,6 @@ export default function ControlTower() {
     return () => controller.abort();
   }, [selectedId, token, approvalToken]);
   useEffect(() => {
-    if (!token && !approvalToken) return;
     const controller = new AbortController();
     let refreshTimer: ReturnType<typeof setTimeout>;
     let reconnect: ReturnType<typeof setTimeout>;
@@ -336,6 +340,9 @@ export default function ControlTower() {
         (event) => {
           const audit = event as Audit;
           cursor = audit.sequence || cursor;
+          if (audit.run_id === selectedId) {
+            setAgentEvents(previous => ({ ...previous, [audit.stage]: audit }));
+          }
           // Agent start/finish events are numerous. Their durable cluster
           // snapshot is published by the stage event; reloading a multi-MB
           // run for every agent event can overwhelm the browser tab.
@@ -456,12 +463,16 @@ export default function ControlTower() {
   async function startRun() {
     setBusy(true);
     setError("");
+    setSubmitError("");
     try {
+      const selection = !whatIf && request.operation === "TRANSPORT" && request.demo_mode && request.required_components[0] !== "modal"
+        ? maritimeInput(request, originLocode, destinationLocode, planningSpeed) : undefined;
+      const selectedRequest = selection?.request || request;
       const input = {
-        ...request,
+        ...selectedRequest,
         vessel_reference:
-          request.operation === "TRANSPORT" && request.vessel_reference?.mmsi
-            ? { ...request.vessel_reference, shipment_id: request.shipment_ids[0] || "" }
+          selectedRequest.operation === "TRANSPORT" && selectedRequest.vessel_reference?.mmsi
+            ? { ...selectedRequest.vessel_reference, shipment_id: selectedRequest.shipment_ids[0] || "" }
             : null,
         inventory_ids:
           request.operation === "REPLENISHMENT"
@@ -479,15 +490,10 @@ export default function ControlTower() {
         ? { request: input }
         : {
             request: input,
-            ...(request.operation === "TRANSPORT" && request.demo_mode &&
-            request.required_components[0] !== "modal"
-              ? { arcnautical_route: {
-                  origin_locode: originLocode.trim().toUpperCase(),
-                  destination_locode: destinationLocode.trim().toUpperCase(),
-                  shipment_id: request.shipment_ids[0],
-                } }
+            ...(selection
+              ? { arcnautical_route: selection.arcnautical_route }
               : {}),
-            ...(!request.demo_mode && businessText.trim()
+            ...(businessText.trim() && !(request.demo_mode && request.operation === "TRANSPORT")
               ? { business_inputs: JSON.parse(businessText) }
               : {}),
           };
@@ -503,6 +509,7 @@ export default function ControlTower() {
       refreshRuns();
     } catch (e) {
       setError((e as Error).message);
+      setSubmitError((e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -568,6 +575,7 @@ export default function ControlTower() {
         </div>
         <div className="rail-links">
           {[
+            { name: "Route Demo", icon: Anchor },
             { name: "Command Center", icon: Layers3 },
             { name: "Live Operations", icon: Globe2 },
             { name: "Intelligence", icon: Activity },
@@ -581,23 +589,22 @@ export default function ControlTower() {
           ].map(({ name, icon: Icon }) => (
             <button
               key={name}
-              aria-label={name}
-              title={name}
-              onClick={() => setView(name)}
+              aria-label={displayLabel(name)}
+              title={displayLabel(name)}
+              onClick={() => {
+                setView(name);
+                if (name === "Route Demo" && run && !(run.request.operation === "TRANSPORT" && run.request.demo_mode)) {
+                  setRun(undefined);
+                  setSelectedId(runs.find(item => item.request.operation === "TRANSPORT" && item.request.demo_mode)?.run_id || "");
+                }
+              }}
               className={view === name ? "active" : ""}
             >
               <Icon size={17} />
-              <span>{name}</span>
+              <span>{displayLabel(name)}</span>
             </button>
           ))}
         </div>
-        <button
-          title="Access credentials"
-          aria-label="Access credentials"
-          onClick={() => setAuthOpen(true)}
-        >
-          <LockKeyhole size={19} />
-        </button>
         <div className="rail-version">
           OS
           <br />
@@ -609,7 +616,7 @@ export default function ControlTower() {
           <div className="brand">
             <span>EXOCHAIN</span>
             <span className="brand-divider" />
-            <span className="product-name">CONTROL TOWER</span>
+            <span className="product-name">{view === "Route Demo" ? "MULTI-AGENT ROUTE PLANNER" : "CONTROL TOWER"}</span>
             <span className="workspace-tag">
               {health?.environment?.toUpperCase() || "ENV UNAVAILABLE"}
             </span>
@@ -623,17 +630,10 @@ export default function ControlTower() {
               <Radio size={13} />
               {connected ? "Telemetry connected" : "Telemetry reconnecting"}
             </span>
-            <button
-              className="icon-button"
-              aria-label="Access settings"
-              onClick={() => setAuthOpen(true)}
-            >
-              <Settings2 size={17} />
-            </button>
             <div className="avatar">OP</div>
           </div>
         </header>
-        <div className="healthbar">
+        {view !== "Route Demo" && <div className="healthbar">
           <span className="tiny-label">SYSTEM HEALTH</span>
           {[
             "ais",
@@ -671,15 +671,15 @@ export default function ControlTower() {
               ? new Date(health.checked_at).toLocaleTimeString()
               : "Backend not connected"}
           </span>
-        </div>
+        </div>}
         <main className={`view-${view.toLowerCase().replaceAll(" ", "-")}`}>
           <div className="page-heading">
             <div>
               <div className="eyebrow">
-                GLOBAL NETWORK / {view.toUpperCase()}
+                GLOBAL NETWORK / {displayLabel(view).toUpperCase()}
               </div>
-              <h1>{view}</h1>
-              <p>Evidence first. Every recommendation traceable.</p>
+              <h1>{displayLabel(view)}</h1>
+              <p>{view === "Route Demo" ? "Real available data. Collaborative agents. Mathematical route selection." : "Evidence first. Every recommendation traceable."}</p>
             </div>
             <div className="heading-actions">
               <button
@@ -700,7 +700,7 @@ export default function ControlTower() {
                   setDrawer(true);
                 }}
               >
-                <Play size={14} /> New decision run
+                <Play size={14} /> {view === "Route Demo" ? "Plan a route" : "New decision run"}
               </button>
             </div>
           </div>
@@ -727,9 +727,9 @@ export default function ControlTower() {
                 }}
               >
                 <option value="">Select a recorded run</option>
-                {runs.map((r) => (
+                {runs.filter(r => view !== "Route Demo" || (r.request.operation === "TRANSPORT" && r.request.demo_mode)).map((r) => (
                   <option key={r.run_id} value={r.run_id}>
-                    {r.run_id.slice(0, 8)} / {r.request.operation} / {r.run_id === selectedId && planningOnly && r.status === "BLOCKED" ? "PREVIEW AVAILABLE (EXECUTION BLOCKED)" : r.status}
+                    {r.run_id.slice(0, 8)} / {r.request.operation} / {r.run_id === selectedId && planningOnly && r.status === "BLOCKED" ? "PREVIEW AVAILABLE (EXECUTION BLOCKED)" : displayLabel(r.status)}
                   </option>
                 ))}
               </select>
@@ -757,7 +757,7 @@ export default function ControlTower() {
               <Download size={16} />
             </button>
           </div>
-          <div className="command-metrics">
+          {view !== "Route Demo" && <div className="command-metrics">
             <Metric
               label="Telemetry / freshness"
               value={
@@ -803,26 +803,17 @@ export default function ControlTower() {
                 }
               />
             </div>
-          </div>
-          {!token && !approvalToken && (
-            <div className="access-prompt">
-              <LockKeyhole size={16} />
-              <span>
-                Connect workspace credentials to access protected telemetry and
-                inspect decisions and run an assessment.
-              </span>
-              <button className="text-button" onClick={() => setAuthOpen(true)}>
-                Connect workspace &rarr;
-              </button>
-            </div>
-          )}
+          </div>}
+          {view === "Route Demo" && <MaritimeDemo run={run} liveEvents={Object.values(agentEvents)} onStart={() => {
+            setRequest(defaultRequest); setBusinessText(""); setWhatIf(false); setDrawer(true);
+          }} />}
           {view === "Intelligence" && <IntelligenceView run={run} />}
           {view === "Decisions" && (
             <>
               <DecisionsView run={run} />
               <Replenishment
                 run={run}
-                canReconcile={!!token}
+                canReconcile={true}
                 busy={busy}
                 onReconcile={reconcileExecution}
               />
@@ -1045,8 +1036,8 @@ export default function ControlTower() {
                   </div>
                   <DecisionBrief run={run} />
                   {demoGeographic && selectedRoute && (
-                    <div className="requirements" aria-label="Demo voyage evidence">
-                      <p className="footnote">DEMO GEOGRAPHIC ROUTE — not a certified navigational route. Missing evidence is excluded, never assumed safe or zero.</p>
+                    <div className="requirements" aria-label="Voyage evidence">
+                      <p className="footnote">GEOGRAPHIC ROUTE — not a certified navigational route. Missing evidence is excluded, never assumed safe or zero.</p>
                       <p className="footnote">Voyage evidence checks {voyageAssessment?.checks_at ? `ran ${time(voyageAssessment.checks_at)}` : "pending"}. Checks run for each route candidate; they are not continuous live monitoring.</p>
                       <p className="footnote">{run?.request.vessel_reference?.vessel_name || "Vessel not specified"} · IMO {run?.request.vessel_reference?.imo || "unavailable"} · MMSI {run?.request.vessel_reference?.mmsi || "unavailable"}</p>
                       {(["Route geometry", "Distance", "Duration", "Vessel identity"] as const).map((label) => (
@@ -1119,7 +1110,7 @@ export default function ControlTower() {
                   ) : selectedRoute ? (
                     <div className="route-content">
                       <span className="eyebrow">
-                        {demoGeographic ? "DEMO GEOGRAPHIC ROUTE" : recommended.has(selectedRoute.candidate_id)
+                        {demoGeographic ? "GEOGRAPHIC ROUTE" : recommended.has(selectedRoute.candidate_id)
                           ? "RECOMMENDED ROUTE"
                           : "ALTERNATIVE ROUTE"}
                       </span>
@@ -1198,6 +1189,22 @@ export default function ControlTower() {
                         Optimality refers to the generated candidate set. No
                         global maritime optimum is implied.
                       </p>
+                    </div>
+                  ) : run?.request.operation === "REPLENISHMENT" ? (
+                    <div className="explanation-body">
+                      <h3>Inventory replenishment</h3>
+                      <p>{run.request.demo_mode ? "Reference inventory and supplier allocations. Orders are simulated." : "Inventory and supplier allocations for this run."}</p>
+                      <dl className="evidence-fields">
+                        {(components.inventory?.selected || []).map((item) => (
+                          <div key={String(item.id)}>
+                            <dt>{String(item.id)}</dt>
+                            <dd>Order {String(item.order_units)} units · ending stock {String(item.ending_units)}</dd>
+                          </div>
+                        ))}
+                        <div><dt>Total plan cost</dt><dd>{money(run.optimization?.total_cost_usd)}</dd></div>
+                        <div><dt>Order status</dt><dd>{run.execution?.status.replaceAll("_", " ") || "Calculating"}</dd></div>
+                      </dl>
+                      <p>Open Decisions for the inventory, supplier and order details.</p>
                     </div>
                   ) : (
                     <>
@@ -1560,7 +1567,7 @@ export default function ControlTower() {
                               <button
                                 className="secondary"
                                 disabled={
-                                  !approvalToken || !approvalReason || busy
+                                  !approvalReason || busy
                                 }
                                 onClick={() => decide("REJECTED")}
                               >
@@ -1569,7 +1576,7 @@ export default function ControlTower() {
                               <button
                                 className="primary"
                                 disabled={
-                                  !approvalToken || !approvalReason || busy
+                                  !approvalReason || busy
                                 }
                                 onClick={() => decide("APPROVED")}
                               >
@@ -1577,14 +1584,14 @@ export default function ControlTower() {
                               </button>
                             </div>
                             <p className="footnote">
-                              An approver credential is required.
+                              Enter a reason to record your local review.
                             </p>
                           </>
                         )}
                         {run.approval.status === "APPROVED" && !run.request.demo_mode && (
                           <button
                             className="primary"
-                            disabled={!token || busy}
+                            disabled={busy}
                             onClick={execute}
                           >
                             Submit authorized execution
@@ -1756,48 +1763,6 @@ export default function ControlTower() {
           </footer>
         </main>
       </div>
-      {authOpen && (
-        <div className="modal-backdrop">
-          <section className="modal compact">
-            <div className="panel-title">
-              <h2>Workspace access</h2>
-              <button
-                aria-label="Close access settings"
-                onClick={() => setAuthOpen(false)}
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="form-body">
-              <p>
-                Credentials are held in memory for this tab only. Configure
-                independent operator and approver tokens on the backend.
-              </p>
-              <label>
-                Operator token
-                <input
-                  type="password"
-                  autoComplete="off"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                />
-              </label>
-              <label>
-                Approver token
-                <input
-                  type="password"
-                  autoComplete="off"
-                  value={approvalToken}
-                  onChange={(e) => setApprovalToken(e.target.value)}
-                />
-              </label>
-              <button className="primary" onClick={() => setAuthOpen(false)}>
-                Connect workspace
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
       {drawer && (
         <div className="modal-backdrop">
           <section className="modal run-modal">
@@ -1805,7 +1770,7 @@ export default function ControlTower() {
               <div>
                 <SlidersHorizontal size={17} />
                 <h2>
-                  {whatIf ? "What-if / immutable snapshot" : "New decision run"}
+                  {whatIf ? "What-if / immutable snapshot" : view === "Route Demo" ? "Plan a maritime route" : "New decision run"}
                 </h2>
               </div>
               <button
@@ -1815,11 +1780,17 @@ export default function ControlTower() {
                 <X size={18} />
               </button>
             </div>
-            <div className="form-body">
+            {view === "Route Demo" && request.operation === "TRANSPORT" && request.demo_mode && !whatIf ? (
+              <MaritimeRunForm request={request} setRequest={setRequest} origin={originLocode} setOrigin={setOriginLocode}
+                destination={destinationLocode} setDestination={setDestinationLocode} speed={planningSpeed} setSpeed={setPlanningSpeed}
+                advanced={() => setView("Command Center")} />
+            ) : <div className="form-body">
               <p>
                 {whatIf
                   ? `Reuses snapshot ${selectedId.slice(0, 8)}. This run cannot approve or execute production actions.`
-                  : "For a transport demo, enter a shipment and port pair. ArcNautical supplies geographic route candidates; unavailable evidence remains optional."}
+                  : request.demo_mode
+                    ? "All 19 agents run. Replenishment uses reference inventory and suppliers. Orders are simulated; unavailable external feeds are optional."
+                    : "Enter your business records and constraints for a decision run."}
               </p>
               <div className="form-grid">
                 <label>
@@ -1832,9 +1803,11 @@ export default function ControlTower() {
                         ...request,
                         operation: e.target.value,
                         required_components: e.target.value === "TRANSPORT" ? ["route"] : [],
-                        demo_mode: e.target.value === "TRANSPORT",
+                        demo_mode: request.demo_mode,
+                        inventory_ids: e.target.value === "REPLENISHMENT" && !request.inventory_ids.length
+                          ? ["INV-001", "INV-002"] : request.inventory_ids,
                         shipment_ids: e.target.value === "TRANSPORT" && !request.shipment_ids.length
-                          ? ["ARC-SGSIN-NLRTM-DEMO"] : request.shipment_ids,
+                          ? ["MARITIME-PLAN"] : request.shipment_ids,
                         vessel_reference: e.target.value === "TRANSPORT" ? request.vessel_reference : null,
                       })
                     }
@@ -1860,7 +1833,7 @@ export default function ControlTower() {
                           : null,
                       })
                     }
-                    placeholder="Explicit budget required"
+                    placeholder={request.demo_mode ? "Default budget: 125000" : "Explicit budget required"}
                   />
                 </label>
                 <label>
@@ -1922,7 +1895,6 @@ export default function ControlTower() {
                           setRequest({
                             ...request,
                             required_components: [e.target.value],
-                            demo_mode: e.target.value === "route" ? request.demo_mode : false,
                           })
                         }
                       >
@@ -1936,11 +1908,6 @@ export default function ControlTower() {
                     </label>
                     {request.required_components[0] !== "modal" && (
                       <>
-                        <label>
-                          <input type="checkbox" checked={!!request.demo_mode} disabled={whatIf}
-                            onChange={(e) => setRequest({ ...request, demo_mode: e.target.checked })} />
-                          Demo geographic optimization (no real booking)
-                        </label>
                         {request.demo_mode && (
                           <>
                             <label>Origin UN/LOCODE
@@ -2021,11 +1988,19 @@ export default function ControlTower() {
                   </label>
                 )}
               </div>
+              <label>
+                <input type="checkbox" checked={!!request.demo_mode} disabled={whatIf}
+                  onChange={(e) => setRequest({ ...request, demo_mode: e.target.checked,
+                    simulation: e.target.checked,
+                    require_human_approval: !e.target.checked })} />
+                Planning simulation — reference data and simulated orders
+              </label>
               <h4>Optimization preferences</h4>
               <label>
                 <input
                   type="checkbox"
                   checked={request.require_human_approval}
+                  disabled={!!request.demo_mode && request.operation !== "TRANSPORT"}
                   onChange={(e) =>
                     setRequest({
                       ...request,
@@ -2033,12 +2008,12 @@ export default function ControlTower() {
                     })
                   }
                 />
-                Require human approval
+                {request.demo_mode ? "Pause for review (transport only)" : "Require human approval"}
               </label>
               <p className="footnote">
-                Clearing this request only permits automatic approval when
-                server policy explicitly allows it and cost is within the
-                approval threshold.
+                {request.demo_mode
+                  ? "Replenishment simulation completes automatically with a simulated order."
+                  : "Automatic approval requires server policy and an eligible cost."}
               </p>
               <label>
                 Warehouse capacity / units
@@ -2166,7 +2141,7 @@ export default function ControlTower() {
               {!whatIf && !(request.operation === "TRANSPORT" && request.demo_mode) && (
                 <>
                   <label>
-                    Authoritative business input / JSON
+                    {request.demo_mode ? "Optional reference data / JSON" : "Authoritative business input / JSON"}
                     <input
                       type="file"
                       accept="application/json,.json"
@@ -2179,7 +2154,7 @@ export default function ControlTower() {
                       rows={6}
                       value={businessText}
                       onChange={(e) => setBusinessText(e.target.value)}
-                      placeholder="Leave empty to use the configured enterprise provider. No records will be manufactured."
+                      placeholder={request.demo_mode ? "Leave empty to use the built-in reference dataset." : "Leave empty to use the configured enterprise provider."}
                     />
                   </label>
                   <a
@@ -2192,26 +2167,25 @@ export default function ControlTower() {
                   </a>
                 </>
               )}
+            </div>}
+              {submitError && <p role="alert" className="run-form-error">{submitError}</p>}
               <div className="form-actions">
                 <span>
-                  {token
-                    ? "Operator credential supplied"
-                    : "Connect an operator credential to submit"}
+                  Local workspace — no login required
                 </span>
                 <button
                   className="primary"
-                  disabled={busy || !token}
+                  disabled={busy}
                   onClick={startRun}
                 >
                   {busy
                     ? "Submitting..."
                     : whatIf
                       ? "Run what-if analysis"
-                      : "Run decision pipeline"}
+                      : view === "Route Demo" ? "Run agents & optimize route" : "Run decision pipeline"}
                   <ArrowRight size={15} />
                 </button>
               </div>
-            </div>
           </section>
         </div>
       )}

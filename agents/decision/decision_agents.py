@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 from core.schemas.contracts import (
     DecisionCandidate,
+    Provenance,
     Quality,
     utcnow,
     ReplenishmentRestrictions,
@@ -48,6 +49,28 @@ def route(data, intel, request):
         )
         if network is not None:
             for candidate in generated:
+                if data.route_context:
+                    from services.route_evidence import assess_public_route
+                    report = intel.results["risk"].output.get("route_metrics", {}).get(candidate.edge_ids[0], {})
+                    for key, value in report.get("metrics", {}).items():
+                        if value is not None:
+                            setattr(candidate, key, value)
+                    candidate.metric_evidence = report.get("evidence", {})
+                    for evidence in candidate.metric_evidence.values():
+                        if evidence.get("status") != "AVAILABLE":
+                            continue
+                        for reference in evidence.get("references", []):
+                            candidate.provenance.append(Provenance(
+                                source=evidence["source"], reference=reference,
+                                observed_at=evidence.get("observed_at"),
+                                transformation=evidence.get("transformation"),
+                            ))
+                    candidate.voyage_assessment = assess_public_route(candidate, shipment, data, request)
+                    fuel = candidate.voyage_assessment["fuel"]
+                    if fuel["status"] == "VALID":
+                        candidate.fuel_litres = fuel["total_fuel_litres"]
+                        candidate.metric_evidence["fuel_litres"] = fuel
+                    continue
                 candidate.voyage_assessment = assess_voyage(
                     candidate, shipment, network, data,
                     vessel_reference=request.vessel_reference,
@@ -92,6 +115,9 @@ def route(data, intel, request):
 
 
 def modal(data, intel, request):
+    if data.route_context:
+        return {"status": "NOT_APPLICABLE", "candidates": [], "missing": [],
+                "explanation": "Examined transport scope: sea-route comparison, not carrier allocation. No commercial freight quotes supplied."}
     carriers = {c.id: c for c in data.business.carriers if usable(c)}
     options = [
         c
@@ -114,6 +140,9 @@ def modal(data, intel, request):
 
 
 def inventory(data, intel, request):
+    if data.route_context:
+        return {"status": "NOT_APPLICABLE", "candidates": [], "missing": [],
+                "explanation": "Checked request and inventory records: replenishment is outside this maritime route demonstration."}
     records = [
         r
         for r in data.business.inventory
@@ -132,6 +161,9 @@ def inventory(data, intel, request):
 
 
 def supplier(data, intel, request):
+    if data.route_context:
+        return {"status": "NOT_APPLICABLE", "candidates": [], "missing": [],
+                "explanation": "Checked procurement scope: no supplier purchase is requested for a sea-route recommendation."}
     evidence = intel.results.get("disruption")
     restrictions = ReplenishmentRestrictions.model_validate(
         evidence.output.get("replenishment_restrictions", {}) if evidence else {}
@@ -221,11 +253,16 @@ def disruption_response(data, intel, request, peers):
 
 
 def executive(data, intel, request, peers):
+    ai = {}
+    if data.route_context:
+        from services.route_explanation import summarize_routes
+        ai = summarize_routes(data, intel, request, peers.get("route", {}).get("routes", []))
     return {
         "status": "SUCCESS",
         "candidates": [],
         "missing": [],
         "explanation": {
+            "ai_synthesis": ai,
             "what_happened": request.operation,
             "known": {k: v.status for k, v in intel.results.items()},
             "options_generated": {

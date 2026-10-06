@@ -15,6 +15,23 @@ type Props = {
   risks?: {entity_id: string; score?: number | null}[];
   trajectory?: Vessel["history"];
 };
+
+/** Display consecutive points in one world copy, rather than across the map. */
+export function unwrapRouteCoordinates(
+  points: readonly { longitude: number; latitude: number }[], anchor?: number,
+): [number, number][] {
+  let previous = anchor;
+  return points.map(point => {
+    let longitude = point.longitude;
+    if (previous !== undefined) {
+      while (longitude - previous > 180) longitude -= 360;
+      while (longitude - previous < -180) longitude += 360;
+    }
+    previous = longitude;
+    return [longitude, point.latitude];
+  });
+}
+
 export default function OperationsMap({
   vessels,
   routes,
@@ -51,6 +68,10 @@ export default function OperationsMap({
   }, [vessels, routes, recommended, onVessel, onSegment, ports]);
   useEffect(() => {
     if (!container.current) return;
+    // Fast refresh/Strict Mode can retain state while rebuilding the map.
+    // The old "ready" value must not authorize updates to a new empty style.
+    setReady(false);
+    fitted.current = "";
     maplibregl.setWorkerUrl("/maplibre-gl-worker.mjs");
     const instance = new maplibregl.Map({
       container: container.current,
@@ -202,8 +223,11 @@ export default function OperationsMap({
   useEffect(() => {
     if (!ready || !map.current) return;
     const instance = map.current;
+    if (!instance.getSource("routes")) return;
     const update = (id: string, features: Feature<Geometry>[]) => {
-      (instance.getSource(id) as maplibregl.GeoJSONSource).setData({
+      const source = instance.getSource<maplibregl.GeoJSONSource>(id);
+      if (!source) return;
+      source.setData({
         type: "FeatureCollection",
         features,
       } as FeatureCollection);
@@ -230,23 +254,28 @@ export default function OperationsMap({
       return score == null || !Number.isFinite(score) ? [] : [{type: "Feature" as const, properties: {score}, geometry: {type: "Point" as const, coordinates: [v.position.longitude, v.position.latitude]}}];
     }));
     const points = trajectory.filter(p => Number.isFinite(p.latitude) && Number.isFinite(p.longitude));
-    update("trajectory", points.length < 2 ? [] : [{type: "Feature", properties: {}, geometry: {type: "LineString", coordinates: points.map(p => [p.longitude, p.latitude])}}]);
+    update("trajectory", points.length < 2 ? [] : [{type: "Feature", properties: {}, geometry: {type: "LineString", coordinates: unwrapRouteCoordinates(points)}}]);
     update(
       "routes",
-      routes.flatMap((r) =>
-        (r.segments || []).map((s) => ({
-          type: "Feature" as const,
-          properties: {
-            id: r.candidate_id,
-            segment: s.id,
-            recommended: recommended.has(r.candidate_id),
-          },
-          geometry: {
-            type: "LineString" as const,
-            coordinates: s.geometry.map((p) => [p.longitude, p.latitude]),
-          },
-        })),
-      ),
+      routes.flatMap((r) => {
+        const continuous = unwrapRouteCoordinates(r.geometry);
+        return (r.segments?.length ? r.segments : [{ id: r.candidate_id, geometry: r.geometry }]).map((s) => {
+          const first = s.geometry[0];
+          const index = r.geometry.findIndex(p => first && p.longitude === first.longitude && p.latitude === first.latitude);
+          return {
+            type: "Feature" as const,
+            properties: {
+              id: r.candidate_id,
+              segment: s.id,
+              recommended: recommended.has(r.candidate_id),
+            },
+            geometry: {
+              type: "LineString" as const,
+              coordinates: unwrapRouteCoordinates(s.geometry, continuous[index]?.[0]),
+            },
+          };
+        });
+      }),
     );
     update(
       "ports",
@@ -268,16 +297,17 @@ export default function OperationsMap({
       "endpoints",
       routes
         .filter((r) => recommended.has(r.candidate_id))
-        .flatMap((r) =>
-          [r.geometry[0], r.geometry.at(-1)].filter(Boolean).map((p) => ({
+        .flatMap((r) => {
+          const continuous = unwrapRouteCoordinates(r.geometry);
+          return [continuous[0], continuous.at(-1)].filter(Boolean).map((p) => ({
             type: "Feature" as const,
             properties: {},
             geometry: {
               type: "Point" as const,
-              coordinates: [p!.longitude, p!.latitude],
+              coordinates: p!,
             },
-          })),
-        ),
+          }));
+        }),
     );
     const selected = routes.find((r) => recommended.has(r.candidate_id))
       || routes.find((r) => r.candidate_id === "geographic-planning-preview");
@@ -291,8 +321,8 @@ export default function OperationsMap({
     }
     if (selected && fitted.current !== selected.candidate_id) {
       const bounds = new maplibregl.LngLatBounds();
-      selected.geometry.forEach((p) =>
-        bounds.extend([p.longitude, p.latitude]),
+      unwrapRouteCoordinates(selected.geometry).forEach((p) =>
+        bounds.extend(p),
       );
       instance.fitBounds(bounds, { padding: 70, maxZoom: 8 });
       fitted.current = selected.candidate_id;

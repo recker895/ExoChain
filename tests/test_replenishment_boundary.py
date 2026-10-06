@@ -339,19 +339,19 @@ def test_source_csv_and_https_contracts(tmp_path, business, monkeypatch):
     assert result.quality == "UNAVAILABLE" and "secret" not in result.model_dump_json()
 
 
-def test_reconciliation_api_requires_operator(source, store, registry, monkeypatch):
+def test_reconciliation_api_needs_run_not_operator_token(source, store, registry, monkeypatch):
     from dashboard.backend.main import create_app
 
     monkeypatch.setattr(settings, "OPERATOR_API_TOKEN", SecretStr("test-operator"))
     monkeypatch.setattr(settings, "APPROVER_API_TOKEN", SecretStr("test-approver"))
     api = TestClient(create_app(store, registry, DataCluster(registry)))
-    assert api.post("/api/v1/runs/absent/reconcile").status_code == 401
+    assert api.post("/api/v1/runs/absent/reconcile").status_code == 404
     assert (
         api.post(
             "/api/v1/runs/absent/reconcile",
             headers={"Authorization": "Bearer test-approver"},
         ).status_code
-        == 401
+        == 404
     )
     assert api.get(
         "/api/v1/business/source", headers={"Authorization": "Bearer test-operator"}

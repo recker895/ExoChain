@@ -1,23 +1,20 @@
-"""Control tower API. Mutations require independently configured roles."""
+"""Unauthenticated control tower API for the local college demonstration."""
 
 from __future__ import annotations
 import asyncio
 import copy
-import hashlib
-import hmac
 import json
 import subprocess
 import threading
 from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
-from typing import Annotated
 
-from fastapi import FastAPI, Depends, Header, HTTPException, Request
+from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from starlette.concurrency import run_in_threadpool
 from config.settings import settings
 from core.schemas.contracts import BusinessInputs, RunRequest, ApprovalDecision, utcnow
@@ -36,22 +33,28 @@ from services.providers.business import (
     fetch_business,
     snapshot_identity,
 )
-from services.providers.arcnautical_adapter import adapt_arcnautical_route, compute_arcnautical_route
 
 logger = configure_logging()
 
 
 class ArcNauticalRouteInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    origin_locode: str
-    destination_locode: str
+    origin_locode: str = Field(pattern=r"^[A-Za-z0-9]{5}$")
+    destination_locode: str = Field(pattern=r"^[A-Za-z0-9]{5}$")
     shipment_id: str
+    planning_speed_knots: float = Field(default=14, ge=1, le=40)
     assumed_cost_usd: float | None = None
     assumed_fuel_litres: float | None = None
     assumed_risk_score: float | None = None
     assumed_vessel_draft_m: float | None = None
     assumed_max_speed_knots: float | None = None
     assumption_source: str | None = None
+
+    @model_validator(mode="after")
+    def endpoints(self):
+        if self.origin_locode.upper() == self.destination_locode.upper():
+            raise ValueError("Origin and destination must differ")
+        return self
 
 
 class CreateRun(BaseModel):
@@ -66,36 +69,17 @@ class WhatIf(BaseModel):
     request: RunRequest
 
 
-def principal(authorization, roles):
-    token = (
-        authorization[7:]
-        if authorization and authorization.startswith("Bearer ")
-        else ""
-    )
-    candidates = {
-        "operator": settings.OPERATOR_API_TOKEN.get_secret_value(),
-        "approver": settings.APPROVER_API_TOKEN.get_secret_value(),
-    }
-    if not any(candidates[r] for r in roles):
-        raise HTTPException(503, "Required role is not configured")
-    for role in roles:
-        if candidates[role] and token and hmac.compare_digest(token, candidates[role]):
-            return role + ":" + hashlib.sha256(token.encode()).hexdigest()[:12]
-    raise HTTPException(
-        401, "Valid role credentials required", headers={"WWW-Authenticate": "Bearer"}
-    )
+def operator():
+    # Labels identify local workflow actions, not authenticated people.
+    return "local-demo:operator"
 
 
-def operator(authorization: Annotated[str | None, Header()] = None):
-    return principal(authorization, ["operator"])
+def approver():
+    return "local-demo:reviewer"
 
 
-def approver(authorization: Annotated[str | None, Header()] = None):
-    return principal(authorization, ["approver"])
-
-
-def reader(authorization: Annotated[str | None, Header()] = None):
-    return principal(authorization, ["operator", "approver"])
+def reader():
+    return "local-demo:reader"
 
 
 def create_app(store=None, registry=None, cluster=None):
@@ -187,19 +171,6 @@ def create_app(store=None, registry=None, cluster=None):
 
     @app.middleware("http")
     async def limits(request, call_next):
-        if (
-            settings.ENVIRONMENT == "production"
-            and request.method != "OPTIONS"
-            and (request.url.path.startswith("/api/") or request.url.path == "/health")
-        ):
-            try:
-                principal(
-                    request.headers.get("authorization"), ["operator", "approver"]
-                )
-            except HTTPException as exc:
-                return JSONResponse(
-                    {"detail": exc.detail}, exc.status_code, headers=exc.headers
-                )
         try:
             length = int(request.headers.get("content-length", "0"))
         except ValueError:
@@ -428,7 +399,7 @@ def create_app(store=None, registry=None, cluster=None):
         if payload.request.what_if or payload.request.parent_run_id:
             raise HTTPException(422, "Use the what-if endpoint for snapshot replay")
         if payload.request.demo_mode and settings.ENVIRONMENT == "production":
-            raise HTTPException(422, "Transport demo mode is disabled in production")
+            raise HTTPException(422, "College demo mode is disabled in production")
         business = payload.business_inputs
         reference = payload.request.vessel_reference
         if reference is not None and business is not None:
@@ -437,6 +408,13 @@ def create_app(store=None, registry=None, cluster=None):
                 raise HTTPException(422, "Vessel reference conflicts with shipment identity")
         if payload.arcnautical_route is not None:
             route = payload.arcnautical_route
+            from services.maritime_catalog import validate_ports
+            try:
+                await asyncio.to_thread(validate_ports, route.origin_locode, route.destination_locode)
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
+            except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                raise HTTPException(503, "Geographic routing provider is unavailable; check Node.js and the routing package.") from exc
             if payload.request.operation != "TRANSPORT" or set(payload.request.required_components) != {"route"} or payload.request.shipment_ids != [route.shipment_id]:
                 raise HTTPException(422, "ArcNautical input requires one matching route-only transport shipment")
             if business is not None and (business.route_network is not None or len(business.shipments) != 1
@@ -444,38 +422,8 @@ def create_app(store=None, registry=None, cluster=None):
                                          or business.shipments[0].origin_id != route.origin_locode.upper()
                                          or business.shipments[0].destination_id != route.destination_locode.upper()):
                 raise HTTPException(422, "Business input must contain one matching shipment and no route network")
-            try:
-                computed = await run_in_threadpool(compute_arcnautical_route, route.origin_locode, route.destination_locode)
-                alternatives = []
-                crossed = set(computed["result"].get("hazard_zones_crossed", []))
-                if {"Red Sea", "Suez Canal"} & crossed:
-                    try:
-                        alternatives.append(await run_in_threadpool(
-                            compute_arcnautical_route, route.origin_locode,
-                            route.destination_locode, via_cape=True,
-                        ))
-                    except (OSError, subprocess.SubprocessError, ValueError):
-                        # A failed optional comparison must not erase the primary route.
-                        pass
-                generated = adapt_arcnautical_route(
-                    computed, shipment_id=route.shipment_id,
-                    alternative_payloads=alternatives,
-                    cost_usd=route.assumed_cost_usd,
-                    fuel_litres=route.assumed_fuel_litres,
-                    risk_score=route.assumed_risk_score,
-                    vessel_draft_m=route.assumed_vessel_draft_m,
-                    max_speed_knots=route.assumed_max_speed_knots,
-                    assumption_source=route.assumption_source,
-                )
-                if business is None:
-                    business = generated
-                else:
-                    business = business.model_copy(update={"route_network": generated.route_network})
-            except (ValueError, KeyError, TypeError, IndexError) as exc:
-                raise HTTPException(422, f"ArcNautical route cannot be adapted: {exc}") from exc
-            except (OSError, subprocess.SubprocessError) as exc:
-                raise HTTPException(503, f"ArcNautical route computation unavailable: {type(exc).__name__}") from exc
-        return submit(initial_state(payload.request, business), actor)
+        return submit(initial_state(payload.request, business, route_input=(
+            payload.arcnautical_route.model_dump(mode="json") if payload.arcnautical_route else None)), actor)
 
     @app.post("/api/v1/runs/{run_id}/start", status_code=202)
     async def start_run(run_id: str, actor=Depends(operator)):

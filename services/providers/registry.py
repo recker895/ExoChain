@@ -343,6 +343,32 @@ class ProviderRegistry:
             else ["PORT_DATA_UNAVAILABLE"],
         )
 
+    def route_ports(self, locodes):
+        """Bounded real PortWatch lookup of just the requested endpoints."""
+        from agents.data.port_infrastructure_agent import PortInfrastructureDataAgent
+        from services.providers.ports import port_locations, join_port_locations
+        agent = PortInfrastructureDataAgent()
+        locations = port_locations(self.store)
+        ids = [key for key, value in locations["ports"].items()
+               if str(value.get("locode", "")).upper() in set(locodes)]
+        if not ids:
+            return ProviderEnvelope(source="IMF PortWatch", entity_id="route-ports",
+                quality=Quality.UNAVAILABLE, errors=["PORTWATCH_ENDPOINT_IDS_UNAVAILABLE"])
+        date = agent._latest_date()
+        quoted = ",".join("'" + str(key).replace("'", "''") + "'" for key in ids)
+        payload = agent._query({"where": f"date = DATE '{date}' AND portid IN ({quoted})",
+            "outFields": "*", "returnGeometry": "false", "resultRecordCount": 1000, "f": "json"})
+        records = [item["attributes"] for item in payload.get("features", [])]
+        observed = timestamp(date)
+        expires = observed + timedelta(seconds=settings.PORT_MAX_AGE_SECONDS) if observed else None
+        return ProviderEnvelope(source="IMF PortWatch", entity_id="route-ports",
+            observed_at=observed, valid_until=expires,
+            quality=Quality.STALE if records and expires and expires < utcnow()
+            else Quality.VALID if records else Quality.UNAVAILABLE,
+            payload={"ports": join_port_locations(records, locations), "date": date,
+                     "port_count": len(records), "requested_locodes": locodes},
+            errors=[] if records else ["PORTWATCH_ENDPOINT_ACTIVITY_UNAVAILABLE"])
+
     def snapshot(self):
         with ThreadPoolExecutor(max_workers=settings.PROVIDER_WORKERS) as pool:
             values = list(

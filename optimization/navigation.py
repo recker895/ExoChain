@@ -14,6 +14,7 @@ from core.schemas.contracts import NavigationNetwork, RouteCandidate, Shipment, 
 
 
 METRICS = {
+    "distance": "distance_km",
     "cost": "cost_usd",
     "time": "duration_hours",
     "fuel": "fuel_litres",
@@ -69,6 +70,7 @@ def generate_routes(
                 cost_usd=edge.cost_usd, fuel_litres=edge.fuel_litres,
                 risk_score=edge.risk_score, weather_penalty=edge.weather_penalty,
                 current_penalty=edge.current_penalty,
+                planning_label=edge.planning_label,
                 provenance=edge.provenance, segments=[edge],
             ))
         return candidates[:limit], ([] if candidates else ["NO_USABLE_GEOGRAPHIC_ROUTE"]), {
@@ -116,7 +118,7 @@ def generate_routes(
     # Include shortest distance/time/fuel/risk and environmental objectives as
     # well as the operator's composite objective; deduplicate identical paths.
     profiles = (
-        [weights.model_dump()] + [{key: 1} for key in METRICS] + [{"distance": 1}]
+        [{k: v for k, v in weights.model_dump().items() if k in METRICS}] + [{key: 1} for key in METRICS]
     )
     counter = itertools.count()
     for profile in profiles:
@@ -208,7 +210,7 @@ def score_routes(candidates, weights):
     for c in candidates:
         components = {
             key: weight * getattr(c, METRICS[key]) / scales[key]
-            for key, weight in weights.model_dump().items()
+            for key, weight in weights.model_dump().items() if key in METRICS
         }
         total = sum(components.values())
         scored.append(
@@ -227,23 +229,21 @@ def score_routes(candidates, weights):
 
 def score_demo_routes(candidates, weights):
     """Compare only observed attributes shared by every geographic candidate."""
-    attributes = {"distance": "distance_km", "time": "duration_hours", **METRICS}
-    attributes.pop("cost", None)  # Added below only when a commercial cost exists.
-    enabled = {"distance": 1.0, "time": 1.0}
+    attributes = {**METRICS, "wave": "wave_penalty", "port": "port_penalty"}
+    enabled = {}
     preferences = weights.model_dump()
-    for key in ("cost", "fuel", "risk", "weather", "current"):
-        field = METRICS[key]
+    for key, field in attributes.items():
         if preferences[key] > 0 and all(getattr(c, field) is not None for c in candidates):
             enabled[key] = preferences[key]
     scales = {
-        key: max(getattr(c, METRICS[key] if key in METRICS else attributes[key])
+        key: max(getattr(c, attributes[key])
                  for c in candidates) or 1
         for key in enabled
     }
     scored = []
     for candidate in candidates:
         parts = {
-            key: weight * getattr(candidate, METRICS[key] if key in METRICS else attributes[key]) / scales[key]
+            key: weight * getattr(candidate, attributes[key]) / scales[key]
             for key, weight in enabled.items()
         }
         total = sum(parts.values())
@@ -251,9 +251,9 @@ def score_demo_routes(candidates, weights):
             **candidate.model_dump(mode="json"),
             "objective_value": total,
             "objective_components": parts,
-            "objective_percentages": {key: 100 * part / total for key, part in parts.items()},
+            "objective_percentages": {key: 100 * part / total if total else 0 for key, part in parts.items()},
             "normalization_scales": scales,
             "used_metrics": list(enabled),
-            "excluded_metrics": [key for key in ("cost", "fuel", "risk", "weather", "current") if key not in enabled],
+            "excluded_metrics": [key for key in attributes if key not in enabled],
         })
     return sorted(scored, key=lambda route: (route["objective_value"], route["candidate_id"]))

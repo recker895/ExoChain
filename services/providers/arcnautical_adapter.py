@@ -15,6 +15,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from core.schemas.contracts import BusinessInputs, Coordinate, utcnow
+from services.geography import normalize_longitude
 
 
 BRIDGE = Path(__file__).with_name("arcnautical_route.mjs")
@@ -22,19 +23,33 @@ PROJECT_ROOT = BRIDGE.parents[2]
 SOURCE = "ArcNautical @arcnautical/maritime-routing"
 
 
-def compute_arcnautical_route(origin: str, destination: str, *, via_cape: bool = False) -> dict:
+def compute_arcnautical_route(origin: str, destination: str, *, via_cape: bool = False,
+                             speed_knots: float | None = None) -> dict:
     if not all(code.isascii() and code.isalnum() and len(code) == 5 for code in (origin, destination)):
         raise ValueError("Two five-character UN/LOCODEs are required")
-    completed = subprocess.run(
-        ["node", str(BRIDGE), origin.upper(), destination.upper(),
-         json.dumps({"via_waypoints": [{"lat": -34.4, "lon": 18.5}]}) if via_cape else "{}"],
-        cwd=PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=True,
-    )
-    return json.loads(completed.stdout)
+    from services.maritime_catalog import validate_ports
+    validate_ports(origin, destination)
+    options = {"via_waypoints": [{"lat": -34.4, "lon": 18.5}]} if via_cape else {}
+    if speed_knots is not None:
+        if not math.isfinite(speed_knots) or not 1 <= speed_knots <= 40:
+            raise ValueError("Planning speed must be between 1 and 40 knots")
+    try:
+        completed = subprocess.run(
+            ["node", str(BRIDGE), origin.upper(), destination.upper(), json.dumps(options)],
+            cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=60, check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        reason = next((line.removeprefix("Error: ") for line in (exc.stderr or "").splitlines()
+                       if line.startswith("Error: ")), "No supported sea route could be generated")
+        raise ValueError(reason[:300]) from exc
+    except subprocess.TimeoutExpired as exc:
+        raise ValueError("Geographic route generation timed out; try another supported port pair") from exc
+    payload = json.loads(completed.stdout)
+    if speed_knots is not None:
+        payload["package_duration_hours"] = payload["result"]["duration_hours"]
+        payload["planning_speed_knots"] = speed_knots
+        payload["result"]["duration_hours"] = payload["result"]["distance_nm"] / speed_knots
+    return payload
 
 
 def adapt_arcnautical_route(
@@ -71,7 +86,7 @@ def adapt_arcnautical_route(
         "source": SOURCE,
         "reference": reference,
         "observed_at": now.isoformat(),
-        "transformation": f"GeoJSON [longitude,latitude] to route_network; package {payload['package_version']}; original route fingerprint {fingerprint}; weather/current penalties not modeled",
+        "transformation": f"GeoJSON [longitude,latitude] to route_network; package {payload['package_version']}; route fingerprint {fingerprint}; duration is distance / planning speed ({payload.get('planning_speed_knots', 14)} knots), not an observed ETA; environmental penalties assessed separately",
     }
     assumption_provenance = {
         "source": assumption_source,
@@ -98,7 +113,10 @@ def adapt_arcnautical_route(
         geometry = option["route_geojson"]["features"][0]["geometry"]
         if geometry["type"] != "LineString":
             raise ValueError("ArcNautical must return a LineString")
-        coords = [Coordinate(latitude=lat, longitude=lon) for lon, lat in geometry["coordinates"]]
+        # The provider unwraps Pacific routes beyond +/-180 for continuity.
+        # Store equivalent canonical coordinates without modifying its geometry.
+        coords = [Coordinate(latitude=lat, longitude=normalize_longitude(lon))
+                  for lon, lat in geometry["coordinates"]]
         if len(coords) < 2:
             raise ValueError("ArcNautical route has fewer than two coordinates")
         distance_km = float(option["distance_nm"]) * 1.852
@@ -113,7 +131,7 @@ def adapt_arcnautical_route(
             "reference": option_reference,
             "transformation": (
                 f"GeoJSON [longitude,latitude] to route_network; package {item['package_version']}; "
-                f"original route fingerprint {option_fingerprint}; weather/current penalties not modeled; "
+                f"original route fingerprint {option_fingerprint}; longitudes wrapped to [-180,180] (same positions); weather/current penalties not modeled; "
                 + ("via Cape of Good Hope" if index else "default route")
             ),
         }
@@ -157,3 +175,34 @@ def adapt_arcnautical_route(
             "edges": edges,
         },
     })
+
+
+def generate_arcnautical_business(route_input, business=None):
+    """Execute real routing within the instrumented run, not before submission."""
+    origin, destination = route_input["origin_locode"], route_input["destination_locode"]
+    speed = route_input.get("planning_speed_knots", 14)
+    primary = compute_arcnautical_route(origin, destination, speed_knots=speed)
+    alternatives = []
+    warnings = []
+    crossed = set(primary["result"].get("hazard_zones_crossed", []))
+    if {"Red Sea", "Suez Canal"} & crossed:
+        try:
+            cape = compute_arcnautical_route(origin, destination, via_cape=True, speed_knots=speed)
+            if cape["result"]["route_geojson"] != primary["result"]["route_geojson"]:
+                alternatives.append(cape)
+        except (OSError, subprocess.SubprocessError, ValueError) as exc:
+            warnings.append(f"CAPE_ALTERNATIVE_UNAVAILABLE:{type(exc).__name__}")
+    generated = adapt_arcnautical_route(
+        primary, shipment_id=route_input["shipment_id"], alternative_payloads=alternatives,
+        cost_usd=route_input.get("assumed_cost_usd"),
+        fuel_litres=route_input.get("assumed_fuel_litres"),
+        risk_score=route_input.get("assumed_risk_score"),
+        vessel_draft_m=route_input.get("assumed_vessel_draft_m"),
+        max_speed_knots=route_input.get("assumed_max_speed_knots"),
+        assumption_source=route_input.get("assumption_source"),
+    )
+    if business is not None:
+        generated = business.model_copy(update={"route_network": generated.route_network})
+    return generated, {"origin_locode": origin.upper(), "destination_locode": destination.upper(),
+                       "planning_speed_knots": speed, "speed_source": "OPERATOR_PLANNING_ASSUMPTION",
+                       "alternative_warnings": warnings}

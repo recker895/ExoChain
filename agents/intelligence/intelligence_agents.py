@@ -36,6 +36,12 @@ def result(
 
 
 def risk(data, upstream=None):
+    if data.route_context:
+        from services.route_evidence import evaluate_route_metrics, METHOD
+        reports = evaluate_route_metrics(data)
+        usable = any(r["metrics"]["risk_score"] is not None for r in reports.values())
+        return result("risk", "PARTIAL" if usable else "UNAVAILABLE",
+                      {"route_metrics": reports}, METHOD, list(reports), quality=Quality.PARTIAL if usable else Quality.UNAVAILABLE)
     assessments = []
     for vessel in data.vessels:
         weather, ocean = vessel.get("weather", {}), vessel.get("ocean", {})
@@ -70,6 +76,9 @@ def risk(data, upstream=None):
 
 
 def demand(data, upstream=None):
+    if data.route_context and not data.business.demand:
+        return result("demand", "NOT_APPLICABLE", {"demand_records_checked": 0},
+                      "Checked business scope: fixed port-to-port voyage; cargo demand forecasting is not needed to compare sea routes.")
     groups = defaultdict(list)
     for item in data.business.demand:
         if item.valid_until >= utcnow() and item.data_quality == Quality.VALID:
@@ -118,6 +127,13 @@ def demand(data, upstream=None):
 
 
 def forecast(data, upstream=None):
+    if data.route_context:
+        estimates = [{"edge_id": edge, "duration_hours": r["duration_hours"],
+                      "distance_km": r["distance_km"], "speed_source": "OPERATOR_PLANNING_ASSUMPTION"}
+                     for edge, r in data.route_context["routes"].items()]
+        return result("forecast", "SUCCESS" if estimates else "UNAVAILABLE", {"transit_estimates": estimates},
+                      "Estimated transit time = ArcNautical distance / planning speed; not a trained prediction or observed ETA.",
+                      [e["edge_id"] for e in estimates], model="distance/speed planning estimate")
     from services.forecasting.stgnn import validated_forecast
 
     return validated_forecast(data)
@@ -130,6 +146,12 @@ def disruption(data, upstream=None):
         if r.observed_at <= utcnow() <= r.valid_until
         and r.data_quality == Quality.VALID
     ]
+    if data.route_context:
+        hazards = {edge: route["hazards"] for edge, route in data.route_context["routes"].items()}
+        return result("disruption", "SUCCESS" if records else "PARTIAL", {
+            "events": [r.model_dump(mode="json") for r in records], "geographic_chokepoints": hazards,
+            "live_event_feed_available": bool(records)},
+            "Cross-checked supplied events and actual route chokepoints. Crossing Suez or the Red Sea is not proof of a current closure; no news events are invented.", list(hazards))
     return result(
         "disruption",
         "SUCCESS" if records else "UNAVAILABLE",
@@ -156,6 +178,15 @@ def supply_restrictions(records):
 
 
 def anomaly(data, upstream=None):
+    if data.route_context:
+        checked = []
+        for edge, route in data.route_context["routes"].items():
+            checked.append({"edge_id": edge, "distance_km": route["distance_km"],
+                            "duration_hours": route["duration_hours"],
+                            "geometry_sample_count": len(route["samples"]),
+                            "positive_distance_and_duration": route["distance_km"] > 0 and route["duration_hours"] > 0})
+        return result("anomaly", "SUCCESS" if checked else "UNAVAILABLE", {"route_checks": checked},
+                      "Checked positive route metrics, sampled geometry and source availability; no vessel speed anomaly claim without AIS history.", [r["edge_id"] for r in checked])
     anomalies = []
     evaluated = 0
     for vessel in data.vessels:
@@ -189,11 +220,15 @@ def anomaly(data, upstream=None):
 def port(data, upstream=None):
     source = data.sources.get("ports")
     records = (source.payload or {}).get("ports", []) if source else []
+    if data.route_context:
+        endpoints = {value for shipment in data.business.shipments for value in (shipment.origin_id, shipment.destination_id)}
+        records = [r for r in records if str(r.get("locode", "")).upper() in endpoints]
     observations = []
     for p in records:
         observations.append(
             {
                 "id": p.get("portid"),
+                "locode": p.get("locode"),
                 "name": p.get("portname"),
                 "country": p.get("country"),
                 "latitude": p.get("latitude"),
@@ -221,6 +256,24 @@ def port(data, upstream=None):
 
 
 def scenario(data, upstream):
+    if data.route_context:
+        reports = upstream["risk"].output.get("route_metrics", {})
+        routes = data.route_context["routes"]
+        profiles = {}
+        for name, include in (("Shortest distance", ["distance"]), ("Shortest time", ["time"]),
+                              ("Available environment", ["weather", "current", "wave"])):
+            fields = {"distance": "distance_km", "time": "duration_hours", "weather": "weather_penalty",
+                      "current": "current_penalty", "wave": "wave_penalty"}
+            values = {edge: {key: route.get(fields[key]) if key in {"distance", "time"}
+                             else reports.get(edge, {}).get("metrics", {}).get(fields[key]) for key in include}
+                      for edge, route in routes.items()}
+            usable = [key for key in include if values and all(v[key] is not None for v in values.values())]
+            scales = {key: max(v[key] for v in values.values()) or 1 for key in usable}
+            scores = {edge: sum(v[key] / scales[key] for key in usable) for edge, v in values.items()} if usable else {}
+            profiles[name] = {"used_metrics": usable, "scores": scores,
+                              "leading_edge": min(scores, key=scores.get) if scores else None}
+        return result("scenario", "PARTIAL", {"comparisons": profiles, "probabilities": None},
+                      "Compared distance-first, time-first and environment-first preferences using the same evidence. These are deterministic what-if comparisons, not invented event probabilities.", list(routes), quality=Quality.PARTIAL)
     available = [
         key for key, value in upstream.items() if value.status in {"SUCCESS", "PARTIAL"}
     ]

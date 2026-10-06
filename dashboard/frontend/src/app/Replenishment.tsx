@@ -63,6 +63,7 @@ export default function Replenishment({
     <div className="workspace-cards">
       <section className="panel evidence-card">
         <h2>Replenishment source</h2>
+        {run.request.demo_mode && <p>REFERENCE DATA — reference records and a simulated purchase order.</p>}
         <p>Run lifecycle: {run.status}</p>
         <dl className="evidence-fields">
           {Object.entries(identity || {}).map(([k, v]) => (
@@ -82,7 +83,7 @@ export default function Replenishment({
             ? "NOT RUN"
             : run.validation.valid
               ? "VALID"
-              : "BLOCKED"}{" "}
+              : run.request.demo_mode ? "SIMULATION WARNINGS" : "BLOCKED"}{" "}
           · {run.validation?.reasons?.join(" · ")}
         </p>
         <p>
@@ -110,7 +111,7 @@ export default function Replenishment({
         </section>
       )}
       {rows(
-        "Authoritative inventory",
+        run.request.demo_mode ? "Reference inventory" : "Authoritative inventory",
         (run.business_inputs.inventory || []) as Record<string, unknown>[],
         [
           "id",

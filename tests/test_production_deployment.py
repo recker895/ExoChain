@@ -43,7 +43,6 @@ def test_production_settings_fail_closed():
         {"ERP_MODE": "simulation"},
         {"TRUSTED_HOSTS": "*"},
         {"CORS_ORIGINS": "http://engine.example.com"},
-        {"APPROVER_API_TOKEN": "a" * 32},
     ):
         with pytest.raises(ValidationError):
             Settings(**(options | override))
@@ -110,7 +109,7 @@ def test_readiness_unconfigured_is_not_ready(store, registry, monkeypatch):
     assert result["dependencies"]["business"] == "UNAVAILABLE"
 
 
-def test_production_api_requires_reader_and_trusted_host(
+def test_unauthenticated_api_retains_trusted_host(
     store, registry, cluster, monkeypatch
 ):
     monkeypatch.setattr(settings, "ENVIRONMENT", "production")
@@ -118,7 +117,7 @@ def test_production_api_requires_reader_and_trusted_host(
     monkeypatch.setattr(settings, "TRUSTED_HOSTS", "testserver")
     client = TestClient(create_app(store, registry, cluster))
     assert client.get("/livez").status_code == 200
-    assert client.get("/api/v1/telemetry").status_code == 401
+    assert client.get("/api/v1/telemetry").status_code == 200
     assert (
         client.get(
             "/api/v1/telemetry", headers={"Authorization": "Bearer operator-test"}

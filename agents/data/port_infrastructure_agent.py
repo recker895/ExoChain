@@ -25,7 +25,7 @@ class PortInfrastructureDataAgent(BaseAgent[dict[str, Any]]):
         response = requests.get(
             self.BASE_URL,
             params=params,
-            timeout=30,
+            timeout=10,
         )
         response.raise_for_status()
 

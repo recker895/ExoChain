@@ -55,15 +55,7 @@ def test_automatic_start_and_draft_recovery(
         draft = initial_state(request, business)
         rid = draft["run_id"]
         store.save(draft)
-        assert api.post(f"/api/v1/runs/{rid}/start").status_code == 401
-        assert (
-            api.post(
-                f"/api/v1/runs/{rid}/start",
-                headers={"Authorization": "Bearer test-approver"},
-            ).status_code
-            == 401
-        )
-        response = api.post(f"/api/v1/runs/{rid}/start", headers=operator)
+        response = api.post(f"/api/v1/runs/{rid}/start")
     else:
         response = api.post(
             "/api/v1/runs",
@@ -98,7 +90,7 @@ def test_automatic_start_and_draft_recovery(
         for e in store.events(rid)
         if e["stage"] == "workflow" and e["status"] == "RUNNING"
     ]
-    assert len(claims) == 1 and claims[0]["actor"].startswith("operator:")
+    assert len(claims) == 1 and claims[0]["actor"] == "local-demo:operator"
     assert (
         len(state["data"]["executions"])
         + len(state["intelligence"]["executions"])

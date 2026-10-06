@@ -56,21 +56,21 @@ def test_weather_join_rejects_wrong_space_and_stale_time():
     assert not join_environment({"ais": ais, "weather": weather})[0]["weather"]
 
 
-def test_api_role_boundaries_and_schema(store, registry, cluster, monkeypatch):
+def test_api_without_credentials_and_schema(store, registry, cluster, monkeypatch):
     monkeypatch.setattr(settings, "OPERATOR_API_TOKEN", SecretStr("test-operator"))
     monkeypatch.setattr(settings, "APPROVER_API_TOKEN", SecretStr("test-approver"))
     from dashboard.backend.main import create_app
 
     client = TestClient(create_app(store, registry, cluster))
-    assert client.get("/api/v1/runs").status_code == 401
+    assert client.get("/api/v1/runs").status_code == 200
     assert client.get("/api/v1/contracts/business").status_code == 200
     assert (
         client.post(
             "/api/v1/runs",
-            json={"request": {}},
+            json={"request": {"operation": "INVALID"}},
             headers={"Authorization": "Bearer test-approver"},
         ).status_code
-        == 401
+        == 422
     )
     assert (
         client.post(

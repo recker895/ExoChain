@@ -73,6 +73,8 @@ def route_optimize(request, business, decisions):
             )
         scorer = score_demo_routes if request.demo_mode else score_routes
         for record in scorer(routes, request.weights):
+            if request.demo_mode and not record["used_metrics"]:
+                return unavailable("route", "NO_AVAILABLE_METRIC_HAS_A_POSITIVE_WEIGHT")
             reasons = []
             if record["risk_score"] is not None and record["risk_score"] > request.max_risk:
                 reasons.append("RISK_LIMIT")
@@ -101,7 +103,7 @@ def route_optimize(request, business, decisions):
             == 1
         )
     priced = [(r, v) for r, v in zip(ranked, variables) if r["cost_usd"] is not None]
-    if priced:
+    if priced and request.budget_usd is not None:
         model.Add(
             sum(cents(r["cost_usd"]) * v for r, v in priced)
             <= math.floor(request.budget_usd * 100)
@@ -126,6 +128,9 @@ def route_optimize(request, business, decisions):
             "demo_geographic_only": request.demo_mode,
             "used_metrics": ranked[0].get("used_metrics", []) if request.demo_mode else None,
             "excluded_metrics": ranked[0].get("excluded_metrics", []) if request.demo_mode else None,
+            "unchecked_constraints": (["Risk limit cannot be checked: risk evidence unavailable"]
+                if any(r["risk_score"] is None for r in ranked) else []) +
+                (["Budget not checked: no evidenced route cost"] if not priced else []),
         }
     )
     if out.status in {"OPTIMAL", "FEASIBLE"}:
@@ -135,6 +140,14 @@ def route_optimize(request, business, decisions):
         ]
         out.total_cost_usd = (sum(r["cost_usd"] for r in out.selected)
                               if all(r["cost_usd"] is not None for r in out.selected) else None)
+        out.explanation["recommendation"] = {
+            "selected": [{"candidate_id": r["candidate_id"], "label": r.get("planning_label"),
+                          "distance_nm": r["distance_km"] / 1.852, "duration_hours": r["duration_hours"],
+                          "objective_value": r["objective_value"]} for r in out.selected],
+            "why": "Lowest weighted normalized objective among generated routes satisfying the checkable input limits.",
+            "used_metrics": out.selected[0].get("used_metrics", []),
+            "not_a_global_navigation_optimum": True,
+        }
     return out
 
 
@@ -588,12 +601,15 @@ def optimize(run_id, request, data, decisions):
             ]
             return plan
     if request.operation == "ASSESSMENT":
+        if request.demo_mode:
+            plan.status = "ASSESSMENT_COMPLETE"
+            return plan
         plan.constraint_violations = ["BUSINESS_DECISION_REQUEST_REQUIRED"]
         return plan
-    if request.budget_usd is None:
+    if request.budget_usd is None and not (request.demo_mode and request.operation == "TRANSPORT"):
         plan.constraint_violations = ["BUDGET_REQUIRED"]
         return plan
-    if request.budget_usd > settings.PROCUREMENT_MAX_BUDGET_USD:
+    if not request.demo_mode and request.budget_usd > settings.PROCUREMENT_MAX_BUDGET_USD:
         plan.constraint_violations = ["BUDGET_EXCEEDS_POLICY"]
         return plan
     required = set(request.required_components)

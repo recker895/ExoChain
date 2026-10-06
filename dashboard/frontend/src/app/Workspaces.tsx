@@ -23,7 +23,7 @@ const names = {
     "executive",
   ],
 };
-const label = (s: string) => s.replaceAll("_", " ");
+const label = (s: string) => ({ DEMO_COMPLETE: "SIMULATION COMPLETE", DEMO_REVIEWED: "REVIEWED", TEST_SCENARIO: "SIMULATION" }[s] || s.replaceAll("_", " "));
 const stamp = (s?: string) =>
   s ? new Date(s).toLocaleString() : "Unavailable";
 const value = (v: unknown): string =>
@@ -37,7 +37,7 @@ const value = (v: unknown): string =>
 export function State({ status = "UNAVAILABLE" }: { status?: string }) {
   return (
     <span
-      className={`badge ${/^(HEALTHY|VALID|SUCCESS|APPROVED|EXECUTED|OPTIMAL|LIVE|PREVIEW_AVAILABLE)$/.test(status) ? "good" : /FAILED|ERROR|REJECTED/.test(status) ? "bad" : "warn"}`}
+      className={`badge ${/^(HEALTHY|VALID|SUCCESS|APPROVED|EXECUTED|OPTIMAL|LIVE|PREVIEW_AVAILABLE|DEMO_COMPLETE|DEMO_REVIEWED|EXECUTION_SIMULATED|ASSESSMENT_COMPLETE|ROUTE_READY)$/.test(status) ? "good" : /FAILED|ERROR|REJECTED/.test(status) ? "bad" : "warn"}`}
     >
       <i />
       {label(status)}
@@ -58,6 +58,8 @@ function Evidence({ data }: { data: Record<string, unknown> }) {
 }
 export function DecisionBrief({ run }: { run?: Run }) {
   const blocked = run?.status === "BLOCKED";
+  const demoComplete = run?.request.demo_mode &&
+    ["DEMO_COMPLETE", "EXECUTION_SIMULATED", "WHAT_IF_COMPLETE", "ROUTE_READY"].includes(run.status);
   const planningOnly = run?.request.operation === "TRANSPORT" && !run?.request.demo_mode &&
     (run?.business_inputs?.route_network as { planning_classification?: string } | undefined)
       ?.planning_classification === "GEOGRAPHIC_PLANNING_ONLY";
@@ -88,7 +90,9 @@ export function DecisionBrief({ run }: { run?: Run }) {
         />
       </div>
       <h3>
-        {planningOnly && blocked
+        {demoComplete
+          ? selected.length ? "Planning completed" : "Assessment completed"
+          : planningOnly && blocked
           ? "Geographic route preview available"
           : blocked
           ? "Plan blocked by validation"
@@ -97,7 +101,9 @@ export function DecisionBrief({ run }: { run?: Run }) {
             : "Awaiting a decision run"}
       </h3>
       <p>
-        {planningOnly && blocked
+        {demoComplete
+          ? run?.request.operation === "TRANSPORT" ? "Public-data route planning completed. OR-Tools compared generated candidates using available evidence. No booking or purchase was made." : "All 19 agents were invoked. Reference business records were used; orders are simulated. External data coverage is reported separately."
+          : planningOnly && blocked
           ? "The route can be explored for planning. It is not a verified navigational plan; approval and execution remain blocked."
           : blocked
           ? "The assessment is recorded. Execution remains blocked until a valid business plan can be established."
@@ -126,8 +132,8 @@ export function DecisionBrief({ run }: { run?: Run }) {
       </div>
       {!planningOnly && <Evidence
         data={{
-          ...(run?.request.demo_mode ? {
-            route_classification: "DEMO GEOGRAPHIC ROUTE — not for navigation",
+          ...(run?.request.demo_mode && run.request.operation === "TRANSPORT" ? {
+            route_classification: "GEOGRAPHIC ROUTE — not for navigation",
             vessel_name: run.request.vessel_reference?.vessel_name || "Unavailable",
             vessel_imo: run.request.vessel_reference?.imo || "Unavailable",
             vessel_mmsi: run.request.vessel_reference?.mmsi || "Unavailable",
@@ -418,7 +424,7 @@ export function ScenarioView({
   const [error, setError] = useState("");
   const parent = run?.request.parent_run_id;
   useEffect(() => {
-    if (!parent || !token) return;
+    if (!parent) return;
     let active = true;
     api<Run>(`/api/v1/runs/${parent}`, token)
       .then((r) => {

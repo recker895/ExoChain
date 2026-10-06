@@ -11,6 +11,7 @@ from agents.data.weather_agent import WeatherDataAgent
 from data_sources.copernicus.ocean_currents import CopernicusOceanCurrentSource
 from core.schemas.contracts import Quality, utcnow
 from services.feature_engineering.environment import current_effect, distance_km
+from services.geography import longitude_delta, normalize_longitude
 
 
 def _unavailable(reason: str) -> dict:
@@ -44,7 +45,7 @@ def route_samples(route, shipment, count=9):
         fraction = (target - cumulative[left]) / (cumulative[right] - cumulative[left]) if cumulative[right] > cumulative[left] else 0
         a, b = points[left], points[right]
         lat = a.latitude + (b.latitude - a.latitude) * fraction
-        lon = a.longitude + (b.longitude - a.longitude) * fraction
+        lon = normalize_longitude(a.longitude + longitude_delta(a.longitude, b.longitude) * fraction)
         result.append({
             "latitude": lat, "longitude": lon,
             "expected_at": (shipment.departure_at + timedelta(hours=route.duration_hours * i / (count - 1))).isoformat(),

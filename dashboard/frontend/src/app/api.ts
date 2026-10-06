@@ -1,13 +1,12 @@
 export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 export async function api<T>(
   path: string,
-  token: string,
+  _token: string,
   body?: unknown,
 ): Promise<T> {
   const response = await fetch(API + path, {
     method: body === undefined ? "GET" : "POST",
     headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -26,12 +25,11 @@ export async function api<T>(
 }
 export async function subscribe(
   path: string,
-  token: string,
+  _token: string,
   signal: AbortSignal,
   onEvent: (value: unknown) => void,
 ) {
   const response = await fetch(API + path, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
     signal,
   });
   if (!response.ok || !response.body)

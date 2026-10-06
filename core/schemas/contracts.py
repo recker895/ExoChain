@@ -314,12 +314,15 @@ class BusinessInputs(Contract):
 
 
 class ObjectiveWeights(Contract):
+    distance: float = Field(default=0, ge=0)
     cost: float = Field(default=1, ge=0)
     time: float = Field(default=1, ge=0)
     fuel: float = Field(default=1, ge=0)
     risk: float = Field(default=1, ge=0)
     weather: float = Field(default=1, ge=0)
     current: float = Field(default=1, ge=0)
+    wave: float = Field(default=0, ge=0)
+    port: float = Field(default=0, ge=0)
 
     @model_validator(mode="after")
     def nonzero(self):
@@ -355,6 +358,7 @@ class RunRequest(Contract):
     shipment_ids: list[str] = Field(default_factory=list)
     vessel_reference: VesselReference | None = None
     demo_mode: bool = False
+    use_ai_explanation: bool = False
     inventory_ids: list[str] = Field(default_factory=list)
     required_components: list[Literal["route", "modal", "inventory", "procurement"]] = (
         Field(default_factory=list)
@@ -372,8 +376,6 @@ class RunRequest(Contract):
 
     @model_validator(mode="after")
     def vessel_scope(self):
-        if self.demo_mode and self.operation != "TRANSPORT":
-            raise ValueError("Demo mode is only available for transport")
         if self.vessel_reference and (
             self.operation != "TRANSPORT"
             or self.shipment_ids != [self.vessel_reference.shipment_id]
@@ -409,6 +411,10 @@ class RouteCandidate(Contract):
     risk_score: float | None = None
     weather_penalty: float | None = None
     current_penalty: float | None = None
+    wave_penalty: float | None = None
+    port_penalty: float | None = None
+    planning_label: str | None = None
+    metric_evidence: dict[str, Any] = Field(default_factory=dict)
     provenance: list[Provenance]
     segments: list[NavigationEdge]
     voyage_assessment: dict[str, Any] = Field(default_factory=dict)
@@ -617,6 +623,7 @@ class ReplenishmentRestrictions(Contract):
 class ExecutionLifecycle(Contract):
     stage: Literal[
         "PLAN_CREATED",
+        "EXECUTION_SIMULATED",
         "PENDING_APPROVAL",
         "APPROVED",
         "EXECUTION_IN_PROGRESS",
@@ -684,6 +691,7 @@ class ReservationSnapshot(Contract):
 class DataSnapshot(Contract):
     sources: dict[str, ProviderEnvelope] = Field(default_factory=dict)
     vessels: list[dict[str, Any]] = Field(default_factory=list)
+    route_context: dict[str, Any] = Field(default_factory=dict)
     business: BusinessInputs = Field(default_factory=BusinessInputs)
     quality: DataQualityReport
     executions: list[AgentExecution] = Field(default_factory=list)

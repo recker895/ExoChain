@@ -202,9 +202,9 @@ def test_provider_failure_retains_stale_evidence_without_secrets():
     assert provider.fetch().errors == ["CIRCUIT_OPEN"]
 
 
-def test_same_operator_and_approver_credentials_rejected():
-    with pytest.raises(ValidationError):
-        Settings(OPERATOR_API_TOKEN="same", APPROVER_API_TOKEN="same")
+def test_legacy_operator_tokens_are_not_required():
+    Settings(OPERATOR_API_TOKEN="", APPROVER_API_TOKEN="")
+    Settings(OPERATOR_API_TOKEN="same", APPROVER_API_TOKEN="same")
 
 
 def test_model_unavailable_without_approved_deployment(monkeypatch):
@@ -255,13 +255,7 @@ def test_api_e2e_pending_approval_and_immutable_what_if(
     }
     assert (
         client.post(
-            f"/api/v1/runs/{run_id}/approval", headers=operator, json=decision
-        ).status_code
-        == 401
-    )
-    assert (
-        client.post(
-            f"/api/v1/runs/{run_id}/approval", headers=approver, json=decision
+            f"/api/v1/runs/{run_id}/approval", json=decision
         ).status_code
         == 200
     )

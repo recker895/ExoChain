@@ -35,6 +35,20 @@ function loadComponent(filename) {
 const Replenishment = loadComponent(
   path.resolve(__dirname, "../src/app/Replenishment.tsx"),
 ).default;
+
+test("planning simulation displays reference inventory and simulated order", () => {
+  const html = render({
+    status: "EXECUTION_SIMULATED",
+    request: { operation: "REPLENISHMENT", demo_mode: true, budget_usd: 125000 },
+    validation: { valid: true, reasons: [] },
+    execution: { status: "EXECUTION_SIMULATED", simulation: true, external_reference: "DEMO-TEST" },
+    optimization: { components: {}, total_cost_usd: 120275 },
+  });
+  assert.ok(html.includes("REFERENCE DATA"));
+  assert.ok(html.includes("Reference inventory"));
+  assert.ok(html.includes("EXECUTION_SIMULATED"));
+  assert.ok(!html.includes("Validation: BLOCKED"));
+});
 function render(changes = {}) {
   const run = {
     status: "DRAFT",

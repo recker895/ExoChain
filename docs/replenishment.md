@@ -1,5 +1,28 @@
 # Replenishment operations
 
+## College demonstration
+
+The new-run form defaults to **College demo**. Select Inventory replenishment,
+use `INV-001, INV-002` and a budget of `125000`, and leave the JSON input empty.
+The backend supplies a labeled classroom dataset with current demo timestamps.
+An uploaded JSON dataset can also be replayed on the demo clock; quantities and
+prices are retained, together with the original provenance.
+
+All 19 agent functions are invoked. Missing live AIS/weather/ERP feeds are optional.
+The CP-SAT model still calculates quantities and supplier allocations using the
+entered budget, capacity, risk and lead-time limits. Approval and order submission
+are simulated locally, resulting in `EXECUTION_SIMULATED`; no ERP connection is
+needed. Repeating the demonstration does not reserve inventory or supplier capacity.
+
+With the built-in sample and a budget of 125000, the full plan orders 730 bearings
+and 710 pumps for a total commitment of 120275 USD, including fixed ordering costs.
+An impossible request completes as `DEMO_COMPLETE` with constraint warnings and
+no simulated order. A data assessment completes without requiring a purchase plan.
+Old recorded runs retain their previous status; create a new run after updating.
+
+Disable College demo to use the original business-source/approval workflow below.
+Demo requests are unavailable when `ENVIRONMENT=production`.
+
 The existing six-stage graph now carries a versioned business snapshot through the
 19 agent records, inventory/procurement CP-SAT models, validation and bound approval.
 Execution and reconciliation remain separately authorized operator API operations.

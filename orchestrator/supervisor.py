@@ -21,6 +21,7 @@ from optimization.engine import optimize
 from services.policy import validate
 from services.approval_service import request_approval, audit
 from services.feedback.outcomes import transition
+from services.demo import prepare_demo, complete_demo
 
 
 class ExoChainOSState(TypedDict):
@@ -41,11 +42,13 @@ class ExoChainOSState(TypedDict):
     status: str
     timestamps: dict[str, str]
     execution_lifecycle: dict | None
+    route_input: dict | None
 
 
 def initial_state(
-    request: RunRequest, business: BusinessInputs | None = None, run_id=None
+    request: RunRequest, business: BusinessInputs | None = None, run_id=None, route_input=None
 ):
+    request, business = prepare_demo(request, business)
     return ExoChainOSState(
         run_id=run_id or str(uuid4()),
         trace_id=str(uuid4()),
@@ -62,6 +65,7 @@ def initial_state(
         approval=None,
         execution=None,
         execution_lifecycle=None,
+        route_input=route_input,
         audit=[],
         errors=[],
         status="DRAFT",
@@ -129,10 +133,12 @@ def build_exochain_decision_os(store=None, data_cluster=None):
             snapshot = cluster.execute(
                 business, observer=observer(state),
                 vessel_reference=request.vessel_reference,
+                request=request, route_input=state.get("route_input"),
             )
             if store:
                 snapshot.feedback = store.feedback()
-                snapshot.reservations = store.reservations(snapshot.business)
+                if not request.demo_mode:
+                    snapshot.reservations = store.reservations(snapshot.business)
         errors = [
             {"provider": k, "errors": v.errors, "quality": v.quality.value}
             for k, v in snapshot.sources.items()
@@ -177,6 +183,14 @@ def build_exochain_decision_os(store=None, data_cluster=None):
             DataSnapshot.model_validate(state["data"]),
             DecisionBundle.model_validate(state["decisions"]),
         )
+        if state["request"].get("demo_mode"):
+            if result.status == "BLOCKED":
+                result.status = "DEMO_WARNINGS"
+            result.explanation["demo"] = {
+                "label": "COLLEGE DEMO",
+                "business_data": "Public geographic route and external model evidence" if state["request"]["operation"] == "TRANSPORT" else "Simulated or replayed demo records",
+                "note": "All agents are invoked; unavailable external feeds are optional.",
+            }
         if result.status in {"OPTIMAL", "FEASIBLE"}:
             transition(state, "PLAN_CREATED")
         return {"optimization": result.model_dump(mode="json"), "status": result.status}
@@ -189,6 +203,15 @@ def build_exochain_decision_os(store=None, data_cluster=None):
         }
 
     def approval_node(state):
+        if (state["request"].get("demo_mode") and state["request"]["operation"] == "TRANSPORT"
+                and not state["request"].get("require_human_approval", True)):
+            return {"status": "ROUTE_READY" if state["validation"]["valid"] else "NO_FEASIBLE_ROUTE",
+                    "approval": None, "execution": None}
+        if state["request"].get("demo_mode") and (
+            state["request"]["operation"] != "TRANSPORT"
+            or not state["request"].get("require_human_approval", True)
+        ):
+            return complete_demo(state)
         approval = request_approval(state) if state["validation"]["valid"] else None
         if approval:
             transition(state, approval.status)

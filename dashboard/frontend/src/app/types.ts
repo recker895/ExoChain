@@ -48,6 +48,11 @@ export type Segment = {
   observed_at: string;
 };
 export type Route = {
+  planning_label?: string | null;
+  weather_penalty?: number | null;
+  current_penalty?: number | null;
+  wave_penalty?: number | null;
+  metric_evidence?: Record<string, unknown>;
   candidate_id: string;
   shipment_id: string;
   geometry: Coordinate[];
@@ -79,6 +84,7 @@ export type Component = {
 export type RequestSpec = {
   operation: string;
   demo_mode?: boolean;
+  use_ai_explanation?: boolean;
   shipment_ids: string[];
   vessel_reference?: {
     shipment_id: string;
@@ -129,6 +135,12 @@ export type Run = {
   timestamps: Record<string, string>;
   business_inputs: Record<string, unknown>;
   data?: {
+    route_context?: { routes?: Record<string, unknown>; condition_mode?: string;
+      routing?: { planning_speed_knots?: number; origin_locode?: string; destination_locode?: string };
+      selection?: { verified_at: string; coordinate_note: string; coordinate_source: string; vessel_note: string;
+        departure?: { locode: string; name: string; lat: number; lon: number; source: string; coordinate_source?: string };
+        destination?: { locode: string; name: string; lat: number; lon: number; source: string; coordinate_source?: string };
+        vessel?: { name: string; imo: string; mmsi: string; source: string } } };
     business_identity?: {
       source_id: string;
       adapter: string;
@@ -159,6 +171,7 @@ export type Run = {
     >;
   };
   decisions?: {
+    routes?: Route[];
     candidates?: Candidate[];
     executions: Agent[];
     missing: string[];

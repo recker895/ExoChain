@@ -40,6 +40,23 @@ def validate(state):
     plan = OptimizationSolution.model_validate(state["optimization"])
     business = BusinessInputs.model_validate(state["business_inputs"])
     if request.demo_mode:
+        if request.operation != "TRANSPORT":
+            reasons = []
+            if settings.ENVIRONMENT == "production":
+                reasons.append("DEMO_MODE_DISABLED_IN_PRODUCTION")
+            if request.operation == "REPLENISHMENT":
+                if plan.status not in {"OPTIMAL", "FEASIBLE", "NO_ACTION_REQUIRED"}:
+                    reasons.extend(plan.constraint_violations or ["NO_FEASIBLE_DEMO_PLAN"])
+                else:
+                    reasons.extend(validate_replenishment(request, business, plan))
+            if plan.run_id != state["run_id"]:
+                reasons.append("PLAN_RUN_MISMATCH")
+            if business.model_dump(mode="json") != state.get("data", {}).get("business"):
+                reasons.append("BUSINESS_SNAPSHOT_MISMATCH")
+            return ValidationResult(
+                valid=not reasons, status="DEMO_REVIEWED" if not reasons else "DEMO_WARNINGS",
+                reasons=sorted(set(reasons)), plan_hash=plan_hash(state),
+            )
         return validate_transport_demo(state, request, plan, business)
     now = utcnow()
     if plan.run_id != state["run_id"]:
@@ -323,8 +340,26 @@ def validate_transport_demo(state, request, plan, business):
                     or selected.get("distance_km") != candidate.distance_km
                     or selected.get("duration_hours") != candidate.duration_hours):
                 reasons.append("SELECTED_ROUTE_DIFFERS_FROM_CANDIDATE")
-            for field in ("cost_usd", "fuel_litres", "risk_score", "weather_penalty", "current_penalty"):
-                if selected.get(field) != getattr(candidate, field) or getattr(candidate, field) != getattr(edge, field):
+            metric_fields = ["cost_usd", "fuel_litres", "risk_score", "weather_penalty", "current_penalty"]
+            if state.get("data", {}).get("route_context"):
+                from core.schemas.contracts import DataSnapshot
+                from services.route_evidence import evaluate_route_metrics
+                from services.voyage_assessment import route_fuel
+                captured = DataSnapshot.model_validate(state["data"])
+                reports = evaluate_route_metrics(captured)
+                values = reports.get(edge.id, {}).get("metrics", {})
+                metric_fields += ["wave_penalty", "port_penalty"]
+                reference = request.vessel_reference
+                profile = next((p for p in captured.business.vessel_profiles if
+                                p.id == (reference.mmsi if reference else shipment.vessel_id)), None)
+                fuel = route_fuel(candidate, profile)
+                if fuel["status"] == "VALID":
+                    values["fuel_litres"] = fuel["total_fuel_litres"]
+            else:
+                values = {}
+            for field in metric_fields:
+                expected = values.get(field) if values.get(field) is not None else getattr(edge, field, None)
+                if selected.get(field) != getattr(candidate, field) or getattr(candidate, field) != expected:
                     reasons.append(f"SELECTED_ROUTE_METRIC_MISMATCH:{field}")
             if candidate.risk_score is not None and candidate.risk_score > request.max_risk:
                 reasons.append("RISK_LIMIT")

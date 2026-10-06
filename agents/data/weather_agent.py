@@ -23,6 +23,39 @@ class WeatherDataAgent(BaseAgent):
 
         self.session = requests.Session()
 
+    def fetch_route_snapshot(self, points, *, domain="weather"):
+        """Real public model data at corridor points, independent of AIS coverage.
+
+        This is a current-condition planning snapshot, not a month-long voyage
+        forecast. Units and valid times are returned by the provider.
+        """
+        variables = {
+            "weather": "wind_speed_10m,wind_direction_10m,temperature_2m",
+            "waves": "wave_height,wave_direction,wave_period",
+            "ocean": "ocean_current_velocity,ocean_current_direction",
+        }
+        if not points or len(points) > 50 or domain not in variables:
+            raise ValueError("Invalid route snapshot request")
+        params = {
+            "latitude": ",".join(str(lat) for lat, _ in points),
+            "longitude": ",".join(str(lon) for _, lon in points),
+            "current": variables[domain], "timezone": "UTC",
+        }
+        if domain == "weather":
+            params["wind_speed_unit"] = "ms"
+        else:
+            params.update(velocity_unit="ms", cell_selection="sea")
+        response = self.session.get(
+            self.API_URL if domain == "weather" else self.MARINE_API_URL,
+            params=params, timeout=min(settings.PROVIDER_TIMEOUT_SECONDS, 10),
+        )
+        response.raise_for_status()
+        payload = response.json()
+        records = payload if isinstance(payload, list) else [payload]
+        if len(records) != len(points):
+            raise ValueError("Provider point count mismatch")
+        return records
+
     def fetch_route_forecast(self, points: List[Tuple[float, float]], *, marine: bool = False) -> List[Dict[str, Any]]:
         """Hourly forecasts at explicit route sample coordinates, not AIS positions."""
         if not points or len(points) > 12:

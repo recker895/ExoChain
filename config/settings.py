@@ -28,6 +28,7 @@ class Settings(BaseModel):
     AISSTREAM_URL: str = "wss://stream.aisstream.io/v0/stream"
     AISSTREAM_API_KEY: SecretStr = SecretStr("")
     GROQ_API_KEY: SecretStr = SecretStr("")
+    GROQ_MODEL: str = "llama-3.1-8b-instant"
     TAVILY_API_KEY: SecretStr = SecretStr("")
     STGNN_NUM_NODES: int = 50
     STGNN_TEMPORAL_WINDOW: int = 12
@@ -50,6 +51,7 @@ class Settings(BaseModel):
     BUSINESS_API_TOKEN: SecretStr = SecretStr("")
     BUSINESS_SOURCE_ID: str = ""
     BUSINESS_SOURCE_TRUST: Literal["UNVERIFIED", "AUTHORITATIVE"] = "UNVERIFIED"
+    # Legacy configuration accepted for old installations; API authentication is removed.
     OPERATOR_API_TOKEN: SecretStr = SecretStr("")
     APPROVER_API_TOKEN: SecretStr = SecretStr("")
     ERP_URL: str = ""
@@ -62,11 +64,6 @@ class Settings(BaseModel):
 
     @model_validator(mode="after")
     def validate_startup(self):
-        if (
-            self.OPERATOR_API_TOKEN.get_secret_value()
-            and self.OPERATOR_API_TOKEN == self.APPROVER_API_TOKEN
-        ):
-            raise ValueError("operator and approver credentials must differ")
         if self.ERP_MODE not in {"unavailable", "simulation", "http"}:
             raise ValueError("invalid ERP_MODE")
         if self.ERP_URL and not self.ERP_URL.startswith("https://"):
@@ -108,18 +105,6 @@ class Settings(BaseModel):
                     raise ValueError(
                         "Production CORS origins must be explicit HTTPS origins"
                     )
-            if (
-                min(
-                    len(self.OPERATOR_API_TOKEN.get_secret_value()),
-                    len(self.APPROVER_API_TOKEN.get_secret_value()),
-                )
-                < 32
-            ):
-                raise ValueError(
-                    "production requires independent operator and approver credentials"
-                )
-            if self.OPERATOR_API_TOKEN == self.APPROVER_API_TOKEN:
-                raise ValueError("operator and approver credentials must differ")
         return self
 
 
