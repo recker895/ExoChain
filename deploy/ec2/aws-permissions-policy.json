@@ -1,0 +1,15 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": ["ec2:AuthorizeSecurityGroupIngress", "ec2:RevokeSecurityGroupIngress"],
+      "Resource": "arn:aws:ec2:ap-south-1:594559485041:security-group/sg-0aec07b18a7325416"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "ec2:DescribeSecurityGroupRules",
+      "Resource": "*"
+    }
+  ]
+}

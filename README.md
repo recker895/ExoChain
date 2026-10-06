@@ -185,3 +185,10 @@ a real assessment and a sanitized report at `data/live_verification.json`.
 See [implementation report](docs/IMPLEMENTATION.md) for measured results, changed
 files, limitations and acceptance assessment. Passing tests is not a production
 readiness certification.
+
+## CI/CD for the existing EC2 site
+
+GitHub Actions tests and builds pull requests and `main`. Optional deployment to
+the existing EC2 server includes health checks and code rollback. Deployment is
+disabled until GitHub/AWS/server setup is completed; see
+[EC2 pipeline setup](deploy/ec2/README.md) before enabling it.

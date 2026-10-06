@@ -4,6 +4,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.pytest_tmp_codex/
 .ruff_cache/
 .venv/
 node_modules/

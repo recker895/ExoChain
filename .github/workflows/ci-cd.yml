@@ -1,0 +1,185 @@
+name: Test and deploy ExoChain
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never interrupt a live deployment. Newer pending runs replace older pending runs.
+concurrency:
+  group: exochain-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Test and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      ENVIRONMENT: test
+      ERP_MODE: unavailable
+      RUN_DB_PATH: /tmp/exochain-ci/runs.db
+      NEXT_PUBLIC_API_URL: ""
+      NEXT_TELEMETRY_DISABLED: "1"
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5.6.0
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            dashboard/frontend/package-lock.json
+      - name: Check deployment files and security baseline
+        run: python deploy/ec2/check_dependencies.py
+      - name: Install locked runtime and test dependencies
+        run: |
+          python -m pip install --require-hashes -r requirements.lock
+          python -m pip install pytest==9.1.1 httpx==0.28.1 PyYAML==6.0.3
+          npm ci --ignore-scripts
+          npm ci --prefix dashboard/frontend
+      - name: Audit production JavaScript dependencies
+        run: |
+          npm audit --omit=dev --audit-level=high
+          npm audit --prefix dashboard/frontend --omit=dev --audit-level=high
+      - name: Check Python source and run tests
+        env:
+          REDIS_INTEGRATION: "1"
+        run: |
+          python -m scripts.check_repository
+          python -m pytest -m "not live" --junitxml=/tmp/backend-tests.xml
+      - name: Frontend tests and type checking
+        working-directory: dashboard/frontend
+        run: |
+          npm test
+          npx --no-install tsc --noEmit
+      - name: Build standalone frontend
+        working-directory: dashboard/frontend
+        run: npm run build
+      - name: Package tested release
+        run: python deploy/ec2/package_release.py --output "$RUNNER_TEMP/exochain-release.tar.gz"
+      - name: Upload release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: exochain-release
+          path: ${{ runner.temp }}/exochain-release.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy:
+    name: Deploy to EC2
+    needs: verify
+    if: >-
+      github.event_name != 'pull_request' &&
+      github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    environment:
+      name: production
+      url: https://exochain.space
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      EC2_HOST: ${{ vars.EC2_HOST }}
+      EC2_SECURITY_GROUP: ${{ vars.EC2_SECURITY_GROUP }}
+      AWS_REGION: ap-south-1
+      RELEASE_ID: ${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          persist-credentials: false
+      - name: Validate settings and reject superseded commits
+        env:
+          SSH_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          HOST_KEY: ${{ secrets.EC2_SSH_HOST_KEY }}
+          ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          import ipaddress, os, re
+          ipaddress.IPv4Address(os.environ['EC2_HOST'])
+          assert re.fullmatch(r'sg-[0-9a-f]+', os.environ['EC2_SECURITY_GROUP'])
+          assert re.fullmatch(r'arn:aws:iam::[0-9]{12}:role/[A-Za-z0-9_+=,.@/-]+', os.environ['ROLE_ARN'])
+          assert os.environ['SSH_KEY'].strip(), 'Missing EC2_SSH_PRIVATE_KEY'
+          assert os.environ['HOST_KEY'].startswith('ssh-ed25519 '), 'Missing pinned EC2_SSH_HOST_KEY'
+          PY
+          current=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')
+          test "$current" = "$GITHUB_SHA" || { echo 'Refusing to deploy an older main commit.'; exit 1; }
+      - uses: actions/download-artifact@v4.3.0
+        with:
+          name: exochain-release
+          path: ${{ runner.temp }}/release
+      - name: Authenticate to AWS with short-lived credentials
+        uses: aws-actions/configure-aws-credentials@v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-south-1
+          role-session-name: exochain-${{ github.run_id }}
+          role-duration-seconds: 3600
+      - name: Configure pinned SSH host identity
+        env:
+          SSH_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          HOST_KEY: ${{ secrets.EC2_SSH_HOST_KEY }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/exochain-ssh"
+          printf '%s\n' "$SSH_KEY" > "$RUNNER_TEMP/exochain-ssh/key"
+          printf '%s %s\n' "$EC2_HOST" "$HOST_KEY" > "$RUNNER_TEMP/exochain-ssh/known_hosts"
+      - name: Temporarily allow this runner IP on SSH only
+        id: ingress
+        run: |
+          runner_ip=$(curl --fail --silent --show-error --max-time 15 https://checkip.amazonaws.com)
+          RUNNER_IP="$runner_ip" python -c 'import ipaddress, os; ipaddress.IPv4Address(os.environ["RUNNER_IP"])'
+          cidr="$runner_ip/32"
+          echo "cidr=$cidr" >> "$GITHUB_OUTPUT"
+          echo "attempted=true" >> "$GITHUB_OUTPUT"
+          aws ec2 authorize-security-group-ingress --group-id "$EC2_SECURITY_GROUP" \
+            --ip-permissions "IpProtocol=tcp,FromPort=22,ToPort=22,IpRanges=[{CidrIp=$cidr,Description=exochain-ci-$GITHUB_RUN_ID}]"
+      - name: Transfer and deploy tested release
+        run: |
+          ssh_options=(-i "$RUNNER_TEMP/exochain-ssh/key" -o BatchMode=yes -o IdentitiesOnly=yes
+            -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$RUNNER_TEMP/exochain-ssh/known_hosts"
+            -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4)
+          ssh "${ssh_options[@]}" "ubuntu@$EC2_HOST" 'test -f /home/ubuntu/exochain-deploy/runtime.json'
+          scp "${ssh_options[@]}" "$RUNNER_TEMP/release/exochain-release.tar.gz" \
+            "ubuntu@$EC2_HOST:/home/ubuntu/exochain-deploy/incoming/$RELEASE_ID.tar.gz"
+          # A transient systemd unit keeps deployment/rollback alive if SSH disconnects.
+          ssh "${ssh_options[@]}" "ubuntu@$EC2_HOST" \
+            "sudo systemd-run --wait --collect --pipe --unit=exochain-deploy-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT --uid=ubuntu --setenv=HOME=/home/ubuntu --property=WorkingDirectory=/home/ubuntu/exochain-deploy /usr/bin/python3 /home/ubuntu/exochain-deploy/deploy_release.py --release-id $RELEASE_ID"
+      - name: Remove only this runner's temporary SSH rule
+        if: always() && steps.ingress.outputs.attempted == 'true'
+        env:
+          CIDR: ${{ steps.ingress.outputs.cidr }}
+        run: |
+          # Match description as well as CIDR; never remove the user's SSH rule.
+          rule=$(aws ec2 describe-security-group-rules \
+            --filters "Name=group-id,Values=$EC2_SECURITY_GROUP" \
+            --query "SecurityGroupRules[?Description=='exochain-ci-$GITHUB_RUN_ID' && CidrIpv4=='$CIDR'].SecurityGroupRuleId | [0]" \
+            --output text)
+          if [ "$rule" != None ] && [ -n "$rule" ]; then
+            aws ec2 revoke-security-group-ingress --group-id "$EC2_SECURITY_GROUP" --security-group-rule-ids "$rule"
+          fi
+      - name: Remove temporary private key
+        if: always()
+        run: rm -f -- "$RUNNER_TEMP/exochain-ssh/key" "$RUNNER_TEMP/exochain-ssh/known_hosts"
